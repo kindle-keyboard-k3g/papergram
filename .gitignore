@@ -24,3 +24,4 @@ __pycache__/
 bin/
 *.ppm
 .playwright-mcp/
+.worktrees/
