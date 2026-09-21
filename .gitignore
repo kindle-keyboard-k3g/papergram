@@ -21,3 +21,6 @@ vendor/
 venv/
 __pycache__/
 *.py[cod]
+bin/
+*.ppm
+.playwright-mcp/
