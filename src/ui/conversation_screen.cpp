@@ -1,5 +1,7 @@
 #include "conversation_screen.h"
 #include "screen_navigator.h"
+#include "toast_notification.h"
+#include "../hal/async_worker.h"
 
 namespace {
 std::vector<std::string> splitTextIntoLines(const std::string& text, std::size_t max_len) {
@@ -18,12 +20,16 @@ std::vector<std::string> splitTextIntoLines(const std::string& text, std::size_t
 ConversationScreen::ConversationScreen(const ChatId& chat_id, const std::string& title)
     : header_(title) {
     state_.active_chat_id = chat_id;
+    state_.status = HistoryStatus::READY;
 }
 
-ConversationScreen::ConversationScreen(mtproto::TelegramClient& client, ScreenNavigator& navigator)
+ConversationScreen::ConversationScreen(mtproto::TelegramClient& client,
+                                       ScreenNavigator& navigator,
+                                       hal::AsyncWorker* worker)
     : header_("Telegram Conversation") {
     state_.client = &client;
     state_.navigator = &navigator;
+    state_.worker = worker;
 }
 
 void ConversationScreen::setChat(const ChatId& chat_id, const std::string& title) {
@@ -38,6 +44,7 @@ const ChatId& ConversationScreen::chatId() const {
 void ConversationScreen::addMessage(const Message& message) {
     state_.history.append(message);
     wrapText(message.text().value());
+    state_.status = HistoryStatus::READY;
 }
 
 const std::vector<std::string>& ConversationScreen::wrappedLines() const {
@@ -55,19 +62,80 @@ std::string ConversationScreen::consumeSubmittedMessage() {
 }
 
 void ConversationScreen::onEnter() {
-    if (state_.client) state_.client->getHistory(state_.active_chat_id, state_.history);
+    fetchHistory();
 }
 
 void ConversationScreen::onExit() {}
 
+void ConversationScreen::fetchHistory() {
+    state_.status = HistoryStatus::LOADING;
+    state_.history = MessageHistory();
+    state_.error_message = "";
+    if (!state_.worker) {
+        MessageHistory temp;
+        bool ok = state_.client && state_.client->getHistory(state_.active_chat_id, temp);
+        onHistoryLoaded(ok, std::move(temp));
+        return;
+    }
+    state_.worker->postTask(
+        [this]() {
+            MessageHistory temp;
+            bool ok = state_.client && state_.client->getHistory(state_.active_chat_id, temp);
+            onHistoryLoaded(ok, std::move(temp));
+        },
+        nullptr
+    );
+}
+
+void ConversationScreen::onHistoryLoaded(bool success, MessageHistory fetched_history) {
+    if (!success) {
+        state_.status = HistoryStatus::ERROR;
+        return;
+    }
+    if (fetched_history.count() == 0) {
+        state_.status = HistoryStatus::EMPTY;
+        return;
+    }
+    state_.history = std::move(fetched_history);
+    state_.status = HistoryStatus::READY;
+}
+
 void ConversationScreen::render(Canvas& canvas) {
     canvas.clear(GrayscaleColor::WHITE);
     header_.render(canvas);
-    int y = 48;
-    for (std::size_t i = state_.scroll_offset; i < state_.history.count() && y < 680; ++i) {
-        renderBubble(canvas, state_.history.at(i), y);
+    if (state_.status != HistoryStatus::READY) {
+        renderStateMessage(canvas);
+    }
+    if (state_.status == HistoryStatus::READY) {
+        int y = 48;
+        for (std::size_t i = state_.scroll_offset; i < state_.history.count() && y < 680; ++i) {
+            renderBubble(canvas, state_.history.at(i), y);
+        }
+    }
+    if (!state_.error_message.empty()) {
+        renderErrorToast(canvas);
     }
     renderInputBar(canvas);
+}
+
+void ConversationScreen::renderStateMessage(Canvas& canvas) const {
+    if (state_.status == HistoryStatus::LOADING) {
+        canvas.blitText(ScreenCoordinate(40, 100), "Loading messages...", GrayscaleColor::DARK_GRAY);
+        return;
+    }
+    if (state_.status == HistoryStatus::EMPTY) {
+        canvas.blitText(ScreenCoordinate(40, 100), "No messages yet. Send a message below!", GrayscaleColor::DARK_GRAY);
+        return;
+    }
+    canvas.blitText(ScreenCoordinate(40, 100), "Failed to load messages. [Menu] -> Refresh", GrayscaleColor::BLACK);
+}
+
+void ConversationScreen::renderErrorToast(Canvas& canvas) const {
+    const std::vector<std::string> lines = {state_.error_message};
+    ui::ToastNotification toast(
+        BoundingBox(ScreenCoordinate(40, 580), ScreenCoordinate(560, 680)),
+        "ERROR:", lines);
+    toast.render(canvas);
 }
 
 void ConversationScreen::renderBubble(Canvas& canvas, const Message& msg, int& y) const {
@@ -118,10 +186,29 @@ void ConversationScreen::handleInput(const InputEvent& event) {
 void ConversationScreen::sendMessage() {
     if (state_.input_buffer.empty()) return;
     state_.submitted_buffer = state_.input_buffer;
-    Message msg(MessageId(99), state_.active_chat_id, "You", state_.input_buffer, 1600000100, true);
+    Message msg(MessageId(99), state_.active_chat_id, "You", state_.input_buffer, 0, true);
     addMessage(msg);
-    if (state_.client) state_.client->sendMessage(state_.active_chat_id, MessageText(state_.input_buffer));
+    std::string text_to_send = state_.input_buffer;
     state_.input_buffer.clear();
+    state_.error_message = "";
+    if (!state_.worker) {
+        bool ok = state_.client && state_.client->sendMessage(state_.active_chat_id, MessageText(text_to_send));
+        onMessageSent(ok);
+        return;
+    }
+    state_.worker->postTask(
+        [this, text_to_send]() {
+            bool ok = state_.client && state_.client->sendMessage(state_.active_chat_id, MessageText(text_to_send));
+            onMessageSent(ok);
+        },
+        nullptr
+    );
+}
+
+void ConversationScreen::onMessageSent(bool success) {
+    if (!success) {
+        state_.error_message = "Failed to send message.";
+    }
 }
 
 char ConversationScreen::mapKeyToChar(KeyCode code) const {
@@ -143,7 +230,7 @@ void ConversationScreen::wrapText(const std::string& text) {
 std::vector<ui::MenuItem> ConversationScreen::contextualMenuItems() {
     std::vector<ui::MenuItem> items;
     items.emplace_back(ui::MenuLabel("Refresh History"), [this]() {
-        if (state_.client) state_.client->getHistory(state_.active_chat_id, state_.history);
+        fetchHistory();
     });
     items.emplace_back(ui::MenuLabel("Clear Input"), [this]() {
         state_.input_buffer.clear();
@@ -153,4 +240,3 @@ std::vector<ui::MenuItem> ConversationScreen::contextualMenuItems() {
     });
     return items;
 }
-
