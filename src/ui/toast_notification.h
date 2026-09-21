@@ -14,6 +14,7 @@ class ToastNotification {
 public:
     ToastNotification(const BoundingBox& bounds, const std::string& title,
                       const std::vector<std::string>& lines);
+    void setBounds(const BoundingBox& bounds);
     void render(Canvas& canvas) const;
     const BoundingBox& bounds() const;
 

@@ -1,8 +1,11 @@
 #include "test_framework.h"
 
 #include "../src/graphics/canvas.h"
+#include "../src/ui/popup_types.h"
 #include "../src/ui/toast_notification.h"
 
+#include <chrono>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -26,6 +29,54 @@ TEST(toast_notification_keeps_bounds_and_renders_card_content) {
               canvas.pixelAt(ScreenCoordinate(114, 131)));
     ASSERT_EQ(GrayscaleColor::BLACK,
               canvas.pixelAt(ScreenCoordinate(115, 149)));
+}
+
+TEST(toast_notification_set_bounds_repositions_rendered_card) {
+    const BoundingBox original_bounds(100, 100, 299, 220);
+    const BoundingBox relocated_bounds(300, 300, 599, 420);
+    const std::vector<std::string> lines = {"Moved line"};
+    ui::ToastNotification notification(original_bounds, "Notice", lines);
+    Canvas canvas;
+    canvas.clear(GrayscaleColor::WHITE);
+
+    notification.setBounds(relocated_bounds);
+    notification.render(canvas);
+
+    ASSERT_EQ(relocated_bounds, notification.bounds());
+    ASSERT_FALSE(canvas.hasNonWhitePixel(original_bounds));
+    ASSERT_TRUE(canvas.hasNonWhitePixel(relocated_bounds));
+    ASSERT_TRUE(canvas.hasNonWhitePixel(BoundingBox(312, 308, 380, 323)));
+}
+
+TEST(popup_duration_rejects_non_positive_values) {
+    bool rejected_zero = false;
+    bool rejected_negative = false;
+    try {
+        ui::PopupDuration zero(std::chrono::milliseconds(0));
+    } catch (const std::invalid_argument&) {
+        rejected_zero = true;
+    }
+    try {
+        ui::PopupDuration negative(std::chrono::milliseconds(-1));
+    } catch (const std::invalid_argument&) {
+        rejected_negative = true;
+    }
+
+    ASSERT_TRUE(rejected_zero);
+    ASSERT_TRUE(rejected_negative);
+    ASSERT_EQ(std::chrono::milliseconds(4000),
+              ui::PopupDuration::defaultValue().toMillis());
+}
+
+TEST(popup_timestamp_supports_duration_arithmetic_and_comparison) {
+    const ui::PopupTimestamp start(std::chrono::milliseconds(1000));
+    const ui::PopupTimestamp later = start + std::chrono::milliseconds(500);
+    const ui::PopupTimestamp earlier = start - std::chrono::milliseconds(250);
+
+    ASSERT_EQ(std::chrono::milliseconds(1500), later.millis());
+    ASSERT_EQ(std::chrono::milliseconds(750), earlier.millis());
+    ASSERT_TRUE(later >= start);
+    ASSERT_TRUE(start < later);
 }
 
 TEST(toast_notification_clips_long_text_to_card_bounds) {

@@ -11,6 +11,10 @@ ToastNotification::ToastNotification(const BoundingBox& bounds,
                                      const std::vector<std::string>& lines)
     : data_{bounds, title, lines} {}
 
+void ToastNotification::setBounds(const BoundingBox& bounds) {
+    data_.bounds = bounds;
+}
+
 void ToastNotification::render(Canvas& canvas) const {
     renderBackground(canvas);
     renderBorder(canvas);
