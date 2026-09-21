@@ -6,6 +6,7 @@
 #include "graphics/diff_tracker.h"
 #include "graphics/idle_refresh_scheduler.h"
 #include "graphics/refresh_strategy.h"
+#include "hal/async_worker.h"
 #include "hal/eink_controller_mxc.h"
 #include "hal/fallback_devices.h"
 #include "hal/frame_buffer_fb0.h"
@@ -161,9 +162,10 @@ int main() {
     ui::PopupManager popups;
 
     ScreenNavigator navigator;
-    auto login = std::make_unique<LoginScreen>(client, navigator);
-    auto chat_list = std::make_unique<ChatListScreen>(client, navigator);
-    auto conv = std::make_unique<ConversationScreen>(client, navigator);
+    hal::AsyncWorker worker;
+    auto login = std::make_unique<LoginScreen>(client, navigator, &worker);
+    auto chat_list = std::make_unique<ChatListScreen>(client, navigator, &worker);
+    auto conv = std::make_unique<ConversationScreen>(client, navigator, &worker);
     auto screensaver = std::make_unique<ScreensaverScreen>(&navigator);
     navigator.setScreens(std::move(login), std::move(chat_list), std::move(conv));
     navigator.setScreensaver(std::move(screensaver));
@@ -182,6 +184,11 @@ int main() {
         uint64_t now_ms = monotonicTimeMs();
         popups.update(ui::PopupTimestamp(std::chrono::milliseconds(now_ms)));
 
+        std::size_t drained = worker.drainUiCallbacks();
+        if (drained > 0) {
+            presentFrame(navigator, popups, canvas, *hw.fb, pipeline, false);
+        }
+
         if (has_event) {
             processEvent(ev, navigator, popups, canvas, hw, pipeline);
             continue;
@@ -199,6 +206,7 @@ int main() {
         }
     }
 
+    worker.stop();
     std::cout << "[Kindle Telegram] Shutting down cleanly." << std::endl;
     return 0;
 }
