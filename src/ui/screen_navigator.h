@@ -2,7 +2,9 @@
 #define KINDLE_UI_SCREEN_NAVIGATOR_H
 
 #include "screen.h"
+#include "kindle_menu.h"
 #include "../domain/value_objects.h"
+#include <functional>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -24,6 +26,11 @@ public:
     bool isLocked() const;
 
     std::optional<ChatId> activeConversationId() const;
+    bool isMenuOpen() const;
+    void openMenu();
+    void closeMenu();
+    void setRefreshCallback(std::function<void()> on_refresh);
+    void setExitCallback(std::function<void()> on_exit);
 
     void render(Canvas& canvas);
     void handleInput(const InputEvent& event);
@@ -39,9 +46,14 @@ private:
         IScreen* previous_active_screen = nullptr;
         std::optional<ChatId> active_conversation_id{std::nullopt};
         bool locked = false;
+        std::function<void()> refresh_cb;
+        std::function<void()> exit_cb;
     };
 
     NavigationState state_;
+    ui::KindleMenu menu_;
+
+    void populateMenu();
 };
 
 #endif
