@@ -7,9 +7,21 @@
 #include "../src/ui/screen_navigator.h"
 #include "mocks/mock_network_transport.h"
 
+#include "../src/mtproto/tl_codec.h"
+
 class DummyNetworkTransport : public INetworkTransport {
 public:
-    bool post(const std::string&, const std::vector<uint8_t>&, std::vector<uint8_t>&) override {
+    bool post(const std::string&, const std::vector<uint8_t>&, std::vector<uint8_t>& response) override {
+        mtproto::TlWriter writer;
+        writer.write_int32(0x105);
+        writer.write_int32(2);
+        writer.write_int64(101);
+        writer.write_string("Tech Chat");
+        writer.write_int32(1);
+        writer.write_int64(102);
+        writer.write_string("Kindle Dev");
+        writer.write_int32(0);
+        response = writer.data();
         return true;
     }
 };
