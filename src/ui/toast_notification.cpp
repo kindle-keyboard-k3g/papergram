@@ -41,7 +41,8 @@ void ToastNotification::renderBorder(Canvas& canvas) const {
 void ToastNotification::renderTitle(Canvas& canvas) const {
     const int x = data_.bounds.left() + 12;
     const int y = data_.bounds.top() + 8;
-    renderText(canvas, clippedText(data_.bounds, data_.title, x), x, y);
+    const std::size_t maximum_characters = maximumCharacters(data_.bounds, x);
+    renderText(canvas, data_.title, maximum_characters, x, y);
 }
 
 void ToastNotification::renderLines(Canvas& canvas) const {
@@ -49,21 +50,23 @@ void ToastNotification::renderLines(Canvas& canvas) const {
     for (std::size_t index = 0U;
          index < data_.lines.size() && fitsLine(data_.bounds, y); ++index) {
         const int x = data_.bounds.left() + 12;
-        const std::string text = clippedText(data_.bounds, data_.lines[index], x);
-        renderText(canvas, text, x, y);
+        const std::size_t maximum_characters = maximumCharacters(data_.bounds, x);
+        renderText(canvas, data_.lines[index], maximum_characters, x, y);
         y += 18;
     }
 }
 
 void ToastNotification::renderText(Canvas& canvas, const std::string& text,
-                                   int x, int y) const {
-    if (!canRenderText(data_.bounds, text, x, y)) return;
-    canvas.blitText(ScreenCoordinate(x, y), text, GrayscaleColor::BLACK);
-}
-
-std::string ToastNotification::clippedText(const BoundingBox& bounds,
-                                           const std::string& text, int x) {
-    return text.substr(0U, maximumCharacters(bounds, x));
+                                   std::size_t maximum_characters, int x,
+                                   int y) const {
+    if (text.empty() || !canRenderText(data_.bounds, maximum_characters, x, y)) return;
+    const std::size_t character_count = std::min(maximum_characters, text.size());
+    for (std::size_t index = 0U; index < character_count; ++index) {
+        const int character_x = x + static_cast<int>(index) *
+                                      BitmapFont::CHARACTER_WIDTH;
+        canvas.blitChar(ScreenCoordinate(character_x, y), text[index],
+                        GrayscaleColor::BLACK);
+    }
 }
 
 std::size_t ToastNotification::maximumCharacters(const BoundingBox& bounds,
@@ -75,13 +78,14 @@ std::size_t ToastNotification::maximumCharacters(const BoundingBox& bounds,
 }
 
 bool ToastNotification::canRenderText(const BoundingBox& bounds,
-                                      const std::string& text, int x, int y) {
-    if (text.empty()) return false;
+                                      std::size_t character_count, int x,
+                                      int y) {
+    if (character_count == 0U) return false;
     const int bottom = std::min(bounds.bottom(), static_cast<int>(Canvas::HEIGHT) - 1);
     const int right = std::min(bounds.right(), static_cast<int>(Canvas::WIDTH) - 1);
     const int last_row = y + static_cast<int>(BitmapFont::CHARACTER_HEIGHT) - 1;
     return x >= bounds.left() && x <= right && y >= bounds.top() &&
-           last_row <= bottom && text.size() <= maximumCharacters(bounds, x);
+           last_row <= bottom && character_count <= maximumCharacters(bounds, x);
 }
 
 bool ToastNotification::fitsLine(const BoundingBox& bounds, int y) {
