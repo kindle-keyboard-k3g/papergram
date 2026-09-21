@@ -64,6 +64,7 @@ public:
     virtual ~IInputDevice() = default;
 
     virtual bool pollEvent(InputEvent& outEvent, int timeoutMs) = 0;
+    virtual bool isClosed() const { return false; }
 };
 
 #endif

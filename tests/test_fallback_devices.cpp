@@ -20,3 +20,8 @@ TEST(dummy_eink_controller_accepts_updates) {
     eink.fullRefresh();
     ASSERT_TRUE(true);
 }
+
+TEST(stdin_input_device_initial_state_is_not_closed) {
+    StdinInputDevice device;
+    ASSERT_FALSE(device.isClosed());
+}

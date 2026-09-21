@@ -47,20 +47,78 @@ void DummyEinkController::updateArea(const BoundingBox& area, bool isFullRefresh
 
 void DummyEinkController::fullRefresh() {}
 
+TerminalModeRestorer::TerminalModeRestorer() {
+    enableRawMode();
+}
+
+TerminalModeRestorer::~TerminalModeRestorer() {
+    if (!is_active_) return;
+    tcsetattr(STDIN_FILENO, TCSANOW, &original_settings_);
+}
+
+void TerminalModeRestorer::enableRawMode() {
+    if (!isatty(STDIN_FILENO)) return;
+    if (tcgetattr(STDIN_FILENO, &original_settings_) != 0) return;
+    struct termios raw = original_settings_;
+    raw.c_lflag &= ~(ICANON | ECHO);
+    if (tcsetattr(STDIN_FILENO, TCSANOW, &raw) == 0) {
+        is_active_ = true;
+    }
+}
+
+StdinInputDevice::StdinInputDevice() = default;
+
+bool StdinInputDevice::isClosed() const {
+    return closed_;
+}
+
 bool StdinInputDevice::pollEvent(InputEvent& outEvent, int timeoutMs) {
+    if (closed_) return false;
     char ch = '\0';
     if (!readChar(ch, timeoutMs)) return false;
     return mapCharToEvent(ch, outEvent);
 }
 
 bool StdinInputDevice::readChar(char& ch, int timeoutMs) {
+    if (closed_) return false;
     struct pollfd pfd{STDIN_FILENO, POLLIN, 0};
-    if (poll(&pfd, 1, timeoutMs) <= 0) return false;
-    return read(STDIN_FILENO, &ch, 1) == 1;
+    int ret = poll(&pfd, 1, timeoutMs);
+    if (ret <= 0) return false;
+    if (pfd.revents & POLLIN) {
+        ssize_t bytes = read(STDIN_FILENO, &ch, 1);
+        if (bytes == 1) return true;
+    }
+    if (pfd.revents & (POLLHUP | POLLERR | POLLNVAL)) {
+        closed_ = true;
+    }
+    return false;
+}
+
+bool StdinInputDevice::parseEscapeSequence(InputEvent& out) {
+    char seq[2] = {0, 0};
+    if (!readChar(seq[0], 20)) {
+        out.code = KeyCode::KEY_BACK;
+        return true;
+    }
+    if (seq[0] != '[') return false;
+    if (!readChar(seq[1], 20)) return false;
+    return mapAnsiBracketSequence(seq[1], out);
+}
+
+bool StdinInputDevice::mapAnsiBracketSequence(char code, InputEvent& out) {
+    if (code == 'A') { out.code = KeyCode::KEY_UP; return true; }
+    if (code == 'B') { out.code = KeyCode::KEY_DOWN; return true; }
+    if (code == 'C') { out.code = KeyCode::KEY_RIGHT; return true; }
+    if (code == 'D') { out.code = KeyCode::KEY_LEFT; return true; }
+    if (code == '5') { out.code = KeyCode::KEY_PAGEUP; return true; }
+    if (code == '6') { out.code = KeyCode::KEY_PAGEDOWN; return true; }
+    return false;
 }
 
 bool StdinInputDevice::mapCharToEvent(char ch, InputEvent& out) {
     out.pressed = true;
+    if (ch == 27) return parseEscapeSequence(out);
+    if (ch == 4) { closed_ = true; return false; }
     if (ch >= 'a' && ch <= 'z') {
         out.code = static_cast<KeyCode>(static_cast<int>(KeyCode::KEY_A) + (ch - 'a'));
         return true;
@@ -77,6 +135,5 @@ bool StdinInputDevice::mapCharToEvent(char ch, InputEvent& out) {
     if (ch == '\n' || ch == '\r') { out.code = KeyCode::KEY_ENTER; return true; }
     if (ch == 127 || ch == '\b') { out.code = KeyCode::KEY_BACKSPACE; return true; }
     if (ch == ' ') { out.code = KeyCode::KEY_SPACE; return true; }
-    if (ch == 27) { out.code = KeyCode::KEY_BACK; return true; }
     return false;
 }

@@ -5,6 +5,7 @@
 #include "frame_buffer.h"
 #include "input_device.h"
 
+#include <termios.h>
 #include <vector>
 
 class MemoryFrameBuffer : public IFrameBuffer {
@@ -31,13 +32,33 @@ public:
     void fullRefresh() override;
 };
 
+class TerminalModeRestorer {
+public:
+    TerminalModeRestorer();
+    ~TerminalModeRestorer();
+    void enableRawMode();
+
+private:
+    struct termios original_settings_{};
+    bool is_active_ = false;
+};
+
 class StdinInputDevice : public IInputDevice {
 public:
+    StdinInputDevice();
+    ~StdinInputDevice() override = default;
+
     bool pollEvent(InputEvent& outEvent, int timeoutMs) override;
+    bool isClosed() const override;
 
 private:
     bool readChar(char& ch, int timeoutMs);
     bool mapCharToEvent(char ch, InputEvent& out);
+    bool parseEscapeSequence(InputEvent& out);
+    bool mapAnsiBracketSequence(char code, InputEvent& out);
+
+    bool closed_ = false;
+    TerminalModeRestorer terminal_mode_;
 };
 
 #endif

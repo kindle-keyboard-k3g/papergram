@@ -46,6 +46,8 @@ HardwareContext initializeHardware() {
         ctx.fb = std::make_unique<MemoryFrameBuffer>();
         ctx.eink = std::make_unique<DummyEinkController>();
         ctx.input = std::make_unique<StdinInputDevice>();
+        std::cout << "[Kindle Telegram] [Host Mode] Framebuffer is written to /tmp/kindle_fb.ppm" << std::endl;
+        std::cout << "[Kindle Telegram] [Host Mode] Controls: type keys, Enter: submit, Backspace: delete, Ctrl+D: exit" << std::endl;
         return ctx;
     }
 }
@@ -76,7 +78,8 @@ int main() {
     hw.fb->flush();
     full_refresh.refresh(dirty_tracker);
 
-    std::cout << "[Kindle Telegram] Ready. Entering main loop..." << std::endl;
+    std::cout << "[Kindle Telegram] Ready. Initial frame saved to /tmp/kindle_fb.ppm" << std::endl;
+    std::cout << "[Kindle Telegram] Entering main loop (listening for input)..." << std::endl;
     while (g_running) {
         InputEvent ev;
         if (hw.input->pollEvent(ev, 100)) {
@@ -84,6 +87,11 @@ int main() {
             navigator.render(canvas);
             hw.fb->flush();
             typing_refresh.refresh(dirty_tracker);
+            std::cout << "[Kindle Telegram] Screen updated -> /tmp/kindle_fb.ppm" << std::endl;
+        }
+        if (hw.input->isClosed()) {
+            std::cout << "[Kindle Telegram] Input stream closed. Exiting." << std::endl;
+            break;
         }
     }
 
