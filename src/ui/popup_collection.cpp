@@ -148,9 +148,10 @@ void PopupCollection::shiftForNewest() {
 void PopupCollection::renderVisualStack(Canvas& canvas,
                                          const PopupLayout& layout,
                                          PopupPosition position) {
-    for (std::size_t index = count_; index > 0U; --index) {
-        const std::size_t entry_index = index - 1U;
-        renderActiveEntry(entry_index, canvas, layout, position, entry_index);
+    std::size_t visible_index = 0U;
+    for (std::size_t index = 0U; index < count_; ++index) {
+        visible_index += renderActiveEntry(index, canvas, layout, position,
+                                           visible_index) ? 1U : 0U;
     }
 }
 
