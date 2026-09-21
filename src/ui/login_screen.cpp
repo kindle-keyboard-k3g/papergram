@@ -1,5 +1,8 @@
 #include "login_screen.h"
 #include "screen_navigator.h"
+#include "toast_notification.h"
+
+#include <vector>
 
 LoginScreen::LoginScreen(mtproto::TelegramClient& client, ScreenNavigator& navigator)
     : client_(&client) {
@@ -22,6 +25,7 @@ void LoginScreen::render(Canvas& canvas) {
     canvas.drawRect(BoundingBox(40, 150, 560, 190), GrayscaleColor::BLACK);
     canvas.blitText(ScreenCoordinate(50, 162), state_.buffer + "_", GrayscaleColor::BLACK);
     canvas.blitText(ScreenCoordinate(40, 220), "[Enter] Continue   [Del] Erase", GrayscaleColor::DARK_GRAY);
+    renderToast(canvas);
 }
 
 void LoginScreen::handleInput(const InputEvent& event) {
@@ -31,10 +35,48 @@ void LoginScreen::handleInput(const InputEvent& event) {
         return;
     }
     if (event.code == KeyCode::KEY_BACKSPACE) {
-        if (!state_.buffer.empty()) state_.buffer.pop_back();
+        eraseLastCharacter();
         return;
     }
     handleKeyPress(event.code);
+}
+
+void LoginScreen::eraseLastCharacter() {
+    if (state_.step == 0 && state_.buffer.size() <= 1U) {
+        state_.buffer = "+";
+        return;
+    }
+    if (state_.buffer.empty()) return;
+    state_.buffer.pop_back();
+}
+
+void LoginScreen::renderToast(Canvas& canvas) const {
+    if (state_.step == 0) {
+        renderPhoneToast(canvas);
+        return;
+    }
+    if (state_.step == 1) renderCodeToast(canvas);
+}
+
+void LoginScreen::renderPhoneToast(Canvas& canvas) const {
+    const std::vector<std::string> lines = {
+        "- '+' is already included for country code.",
+        "- Hold [ALT] + top row (Q-P) to type 1-0.",
+        "- Example: [ALT]+5 [ALT]+5 for Brazil +55"};
+    ui::ToastNotification toast(
+        BoundingBox(ScreenCoordinate(40, 270), ScreenCoordinate(560, 420)),
+        "KEYBOARD TIPS:", lines);
+    toast.render(canvas);
+}
+
+void LoginScreen::renderCodeToast(Canvas& canvas) const {
+    const std::vector<std::string> lines = {
+        "- Hold [ALT] + top row (Q-P) for digits.",
+        "- Check your Telegram app on phone/PC."};
+    ui::ToastNotification toast(
+        BoundingBox(ScreenCoordinate(40, 270), ScreenCoordinate(560, 420)),
+        "CODE TIPS:", lines);
+    toast.render(canvas);
 }
 
 void LoginScreen::handleKeyPress(KeyCode code) {

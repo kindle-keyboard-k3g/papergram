@@ -28,6 +28,10 @@ private:
 
     void handleKeyPress(KeyCode code);
     void submitCurrentStep();
+    void eraseLastCharacter();
+    void renderToast(Canvas& canvas) const;
+    void renderPhoneToast(Canvas& canvas) const;
+    void renderCodeToast(Canvas& canvas) const;
     char mapKeyToChar(KeyCode code) const;
 };
 
