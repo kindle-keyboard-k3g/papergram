@@ -139,3 +139,18 @@ void ConversationScreen::wrapText(const std::string& text) {
     std::vector<std::string> lines = splitTextIntoLines(text, 58);
     state_.wrapped_lines.insert(state_.wrapped_lines.end(), lines.begin(), lines.end());
 }
+
+std::vector<ui::MenuItem> ConversationScreen::contextualMenuItems() {
+    std::vector<ui::MenuItem> items;
+    items.emplace_back(ui::MenuLabel("Refresh History"), [this]() {
+        if (state_.client) state_.client->getHistory(state_.active_chat_id, state_.history);
+    });
+    items.emplace_back(ui::MenuLabel("Clear Input"), [this]() {
+        state_.input_buffer.clear();
+    });
+    items.emplace_back(ui::MenuLabel("Back to Chats"), [this]() {
+        if (state_.navigator) state_.navigator->showChatList();
+    });
+    return items;
+}
+

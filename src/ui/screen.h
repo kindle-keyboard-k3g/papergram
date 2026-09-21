@@ -3,6 +3,8 @@
 
 #include "../graphics/canvas.h"
 #include "../hal/input_device.h"
+#include "menu_item.h"
+#include <vector>
 
 class IScreen {
 public:
@@ -12,6 +14,8 @@ public:
     virtual void handleInput(const InputEvent& event) = 0;
     virtual void onEnter() = 0;
     virtual void onExit() = 0;
+    virtual std::vector<ui::MenuItem> contextualMenuItems() { return {}; }
 };
+
 
 #endif

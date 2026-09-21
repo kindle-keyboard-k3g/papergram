@@ -24,6 +24,7 @@ public:
     void handleInput(const InputEvent& event) override;
     void onEnter() override;
     void onExit() override;
+    std::vector<ui::MenuItem> contextualMenuItems() override;
 
 private:
     struct ConversationState {

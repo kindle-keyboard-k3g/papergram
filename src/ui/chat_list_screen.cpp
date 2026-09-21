@@ -50,3 +50,17 @@ void ChatListScreen::handleInput(const InputEvent& event) {
                                            state_.chats.selectedChat().title().value());
     }
 }
+
+std::vector<ui::MenuItem> ChatListScreen::contextualMenuItems() {
+    std::vector<ui::MenuItem> items;
+    items.emplace_back(ui::MenuLabel("Refresh Chats"), [this]() {
+        if (state_.client) state_.client->getDialogs(state_.chats);
+    });
+    items.emplace_back(ui::MenuLabel("Mark All Read"), [this]() {
+        for (std::size_t i = 0; i < state_.chats.count(); ++i) {
+            state_.chats.at(i).markRead();
+        }
+    });
+    return items;
+}
+

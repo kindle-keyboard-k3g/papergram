@@ -106,3 +106,17 @@ char LoginScreen::mapKeyToChar(KeyCode code) const {
     if (code == KeyCode::KEY_SPACE) return ' ';
     return '\0';
 }
+
+std::vector<ui::MenuItem> LoginScreen::contextualMenuItems() {
+    std::vector<ui::MenuItem> items;
+    items.emplace_back(ui::MenuLabel("Reset Form"), [this]() {
+        state_.step = 0;
+        state_.buffer = "+";
+        state_.status_message = "Enter your phone number";
+    });
+    items.emplace_back(ui::MenuLabel("Keyboard Tips"), [this]() {
+        state_.step = 0;
+    });
+    return items;
+}
+
