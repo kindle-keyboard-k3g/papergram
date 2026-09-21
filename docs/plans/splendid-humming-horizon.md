@@ -1,116 +1,163 @@
-# Implementation Plan: Papergram README Overhaul (GitHub Best Practices & MIT License)
+# Debug Build Implementation Plan
 
-## 1. Context & Objectives
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-The project implements a lightweight, standalone, serverless Telegram client for the Amazon Kindle Keyboard (Kindle 3 / K3 ARMv6 E-Ink). Following the user's decision, the project will be commercially branded as **Papergram** (*The E-Ink Telegram Client for Kindle Keyboard*), while retaining the compiled binary and script names (`bin/kindle-telegram`) for backward compatibility.
+**Goal:** Implement full debug build support for Papergram (host debug binary, AddressSanitizer client, Kindle ARM32 debug target, `DEBUG=1` flag support, and zero-overhead conditional debug logging).
 
-Currently:
-- `README.md` has good technical content but lacks modern GitHub presentation (commercial branding, GitHub shields/badges, Table of Contents, ASCII UI screen mockup, explicit host emulation steps, troubleshooting guide, and contribution instructions).
-- The repository is missing an official standalone `LICENSE` file in the root directory.
+**Architecture:** Extend the `Makefile` with dedicated debug build targets (`make debug`, `make client-debug`, `make client-asan`, `make kindle-debug`, `make test-debug`) and dynamic `DEBUG=1` flag overrides. Introduce a zero-overhead compile-time debug logger in `src/util/debug_log.h` that emits structured subsystem traces (`[DEBUG][<Tag>] <message>`) when `-DDEBUG` is defined, and compiles to no-op code with 0 runtime overhead in release mode. Integrate debug traces at critical hardware and network boundaries (e-ink refresh strategy, input devices, and MTProto handshake).
 
-The objective is to establish a polished, professional GitHub repository presentation adhering to modern GitHub README standards and providing the official MIT License.
+**Tech Stack:** C++17, GNU Make, AddressSanitizer/UBSan, GCC/Clang, Linux evdev/fb0.
 
----
+**Spec:** `docs/plans/splendid-humming-horizon.md`
 
-## 2. Proposed Changes & Structure
+## Global Constraints
 
-### 2.1 Create Root `LICENSE` File
-- Standard MIT License text.
-- Copyright (c) 2026 Samuel Caldas and contributors.
-
-### 2.2 Modernize and Expand `README.md`
-The new `README.md` will be structured as follows:
-
-1. **Header & Badges**:
-   - Project Brand: `# Papergram 📖⚡`
-   - Subtitle: *Distraction-free, serverless Telegram client crafted for the Amazon Kindle Keyboard (Kindle 3 / K3G / K3W) E-Ink display.*
-   - Shields/Badges:
-     - `License: MIT` -> links to `LICENSE`
-     - `C++ Standard: C++17`
-     - `Platform: Kindle Keyboard (K3)`
-     - `Architecture: ARMv6 | softfp`
-     - `Tests: 33 passed | ASan / UBSan clean`
-     - `Dependencies: Zero`
-
-2. **ASCII Screen & UI Mockup**:
-   - High-fidelity ASCII rendering of the Kindle 600x800 display showing:
-     - Top Status Bar (Clock `12:34`, Battery `[98%]`, Network `[Wi-Fi]` / `[3G]`)
-     - Message Bubbles (incoming left-aligned with sender, outgoing right-aligned, 58-character word wrapping)
-     - Bottom Input Bar (`Type a message..._`) with active cursor
-
-3. **Table of Contents**:
-   - Direct markdown anchor links to all sections.
-
-4. **Key Features**:
-   - **On-Device & Serverless**: Direct MTProto connection to Telegram DCs; no relay VPS or third-party bridge.
-   - **Fast E-Ink Dual Refresh**: Hardware ioctl `0x46dd` using DU partial mode (<50ms typing latency) + GC16 full flash anti-ghosting.
-   - **Hardware Input Multiplexer**: Non-blocking `poll()` reading physical QWERTY keyboard (`event0`), 5-way D-pad (`event1`), and side page rockers (`event2`).
-   - **Dual Network & Amazon Proxy**: Works seamlessly over Wi-Fi and 3G cellular via HTTP CONNECT tunneling (`fints.amazon.com:443`).
-   - **Zero-Dependency Micro-Crypto**: Standalone AES-256-IGE, SHA-1, SHA-256, and BigInteger modular exponentiation.
-   - **Strict Object Calisthenics & SOLID**: Clean architecture with 0 `else` branches, wrapped domain primitives, and first-class collections.
-
-5. **Hardware Specifications & Compatibility Matrix**:
-   - Detailed specifications table covering Freescale i.MX353 ARM1136JF-S @ 532 MHz, 256 MB RAM, E-Ink Pearl 600x800 8bpp display, physical inputs, and storage layout.
-
-6. **System Architecture**:
-   - Updated ASCII architecture diagram illustrating the interaction between the Hardware Abstraction Layer (`IFrameBuffer`, `IEinkController`, `IInputDevice`, `INetworkTransport`), Graphics Engine (`Canvas`, `BitmapFont`, `DirtyTracker`, `RefreshStrategy`), MTProto Core (`Crypto`, `Handshake`, `SessionStorage`), and UI Screens (`ScreenNavigator`, `LoginScreen`, `ChatListScreen`, `ConversationScreen`).
-
-7. **Prerequisites & Toolchain Setup**:
-   - Host prerequisites: C++17 compiler (`g++` or `clang++`), GNU Make.
-   - Cross-compilation: `arm-linux-gnueabi-g++` or `kindle-tiny-c-compiler` (TCC).
-
-8. **Quickstart & Local Host Emulation**:
-   - Step-by-step instructions to compile and test on host PC:
-     - `make client`
-     - Running `./bin/kindle-telegram` with automatic fallback to `MemoryFrameBuffer` writing `/tmp/kindle_fb.ppm` and `StdinInputDevice`.
-     - `make test` (33 unit tests)
-     - `make test-asan` (AddressSanitizer and UndefinedBehaviorSanitizer)
-
-9. **Kindle Deployment & Running**:
-   - Jailbreak & USBNetwork (SSH) setup.
-   - Deploying binary and `scripts/launch_kindle.sh` to `/mnt/us/telegram/`.
-   - Running launcher script (automatically stops stock Java framework to free 120 MB RAM, traps signals, and restores framework on exit).
-
-10. **Physical Keyboard & Navigation Reference**:
-    - Comprehensive table of physical keys and shortcuts:
-      - D-Pad navigation (select chats, scroll)
-      - Enter / Center D-Pad (open chat, submit message)
-      - Back key (return to chat list)
-      - Page rocker buttons (page up/down in conversation and dialog list)
-      - `Alt + G` (Ghostbuster: force full GC16 screen refresh)
-      - `Alt + Q` (Clean quit and framework restoration)
-
-11. **Troubleshooting & FAQ**:
-    - Cellular 3G proxy errors and reconnect behavior.
-    - E-ink ghosting mitigation.
-    - Framework recovery if application terminated unexpectedly.
-
-12. **Contributing**:
-    - Guidance on TDD workflow, running `make test` and `make test-asan`.
-    - Object Calisthenics rules (0 `else`, classes <= 100 lines, methods <= 15 lines, wrapped primitives).
-
-13. **License & Attribution**:
-    - MIT License summary with link to `LICENSE`.
-    - Copyright notice.
+- Strict Object Calisthenics: max 1 indentation level per method, 0 `else` keywords, classes ≤ 100 lines, methods ≤ 15 lines, ≤ 2 instance variables per class.
+- Zero runtime overhead in release builds: release binaries must not include debug strings or logging code (target binary size < 350 KB).
+- Zero third-party dependencies: standard library only (`<iostream>`, `<string>`, `<sstream>`).
+- Comprehensive test coverage: all existing 34 tests must continue to pass, with new tests added for debug logging.
 
 ---
 
-## 3. Critical Files to Create / Modify
+### Task 1: Zero-Overhead Debug Logging Utility
 
-- `LICENSE`: Create standard MIT License file.
-- `README.md`: Rewrite and expand to incorporate the Papergram branding, badges, ASCII UI mockup, TOC, local emulation, troubleshooting, and MIT license link.
+**Files:**
+- Create: `src/util/debug_log.h`
+- Test: `tests/test_debug_log.cpp`
+
+**Interfaces:**
+- Produces: `DebugLog::format(const std::string& tag, const std::string& message)` returning `std::string` formatted as `"[DEBUG][" + tag + "] " + message`
+- Macro: `DEBUG_LOG(tag, message)` which streams to `std::clog` when `-DDEBUG` is active, and expands to `do {} while (0)` when `-DDEBUG` is absent.
+
+- [ ] **Step 1: Write the failing unit test for DebugLog**
+Create `tests/test_debug_log.cpp` testing `DebugLog::format` and verifying output string structure.
+
+- [ ] **Step 2: Run test to verify it fails**
+Run: `make test`
+Expected: FAIL with compilation error (missing `src/util/debug_log.h`).
+
+- [ ] **Step 3: Implement `src/util/debug_log.h`**
+Implement the header-only utility adhering to Object Calisthenics (0 `else`, single indent, small static formatter, conditional macro).
+
+- [ ] **Step 4: Run test to verify it passes**
+Run: `make test`
+Expected: PASS (all tests including `test_debug_log` pass).
+
+- [ ] **Step 5: Commit**
+```bash
+git add src/util/debug_log.h tests/test_debug_log.cpp
+git commit -m "feat(debug): add zero-overhead debug logging utility and unit tests"
+```
 
 ---
 
-## 4. Verification Plan
+### Task 2: Integrate Debug Traces at Key Subsystem Boundaries
 
-1. **Markdown Formatting Verification**:
-   - Verify valid syntax, proper heading nesting, and functioning internal anchor links.
-2. **Build & Test Verification**:
-   - Run `make client` to verify native build.
-   - Run `make test` to ensure all 33 unit tests pass.
-   - Run `make test-asan` to verify memory sanitizers remain clean.
-3. **Local Emulation Verification**:
-   - Run `./bin/kindle-telegram` for 1 second in host fallback mode and check that `/tmp/kindle_fb.ppm` is generated.
-4. **Git Status & Working Tree**:
-   - Verify `git status` shows `LICENSE` untracked/added and `README.md` modified.
+**Files:**
+- Modify: `src/graphics/refresh_strategy.cpp`
+- Modify: `src/hal/fallback_devices.cpp`
+- Modify: `src/mtproto/handshake.cpp`
+
+**Interfaces:**
+- Consumes: `DEBUG_LOG(tag, message)` from `src/util/debug_log.h`
+
+- [ ] **Step 1: Add e-ink refresh logging**
+In `src/graphics/refresh_strategy.cpp`, emit `DEBUG_LOG("Eink", ...)` on `TypingRefresh` (logging DU partial bounding box) and `FullRefresh` (logging GC16 full flash reason).
+
+- [ ] **Step 2: Add host input event logging**
+In `src/hal/fallback_devices.cpp`, emit `DEBUG_LOG("Input", ...)` when mapping characters and escape sequences to `KeyCode`.
+
+- [ ] **Step 3: Add MTProto handshake logging**
+In `src/mtproto/handshake.cpp`, emit `DEBUG_LOG("MTProto", ...)` during DH key derivation stages.
+
+- [ ] **Step 4: Verify test suite remains green**
+Run: `make test && make test-asan`
+Expected: All 35 tests pass cleanly.
+
+- [ ] **Step 5: Commit**
+```bash
+git add src/graphics/refresh_strategy.cpp src/hal/fallback_devices.cpp src/mtproto/handshake.cpp
+git commit -m "feat(debug): add subsystem debug traces to e-ink, input, and mtproto"
+```
+
+---
+
+### Task 3: Makefile Debug Targets & `DEBUG=1` Flag Configuration
+
+**Files:**
+- Modify: `Makefile`
+
+**Interfaces:**
+- Produces targets:
+  * `make debug` / `make client-debug` -> `bin/kindle-telegram-debug` (`-g3 -O0 -DDEBUG -Isrc`)
+  * `make client-asan` -> `bin/kindle-telegram-asan` (`-g -O1 -fsanitize=address,undefined -DDEBUG -Isrc`)
+  * `make kindle-debug` -> `bin/kindle-telegram-arm32-debug` (`-g -O0 -DDEBUG` for Kindle gdbserver)
+  * `make test-debug` -> `bin/test_runner_debug` (`-g3 -O0 -DDEBUG`)
+  * Supports `DEBUG=1` parameter to dynamically switch base `CXXFLAGS` from `-O2` to `-g3 -O0 -DDEBUG`.
+  * Updates `make help` with documentation for all debug commands.
+  * Updates `make clean` to remove all debug binaries.
+
+- [ ] **Step 1: Update `Makefile` with debug flags and targets**
+Add `DEBUG_CXXFLAGS`, `TARGET_CLIENT_DEBUG`, `TARGET_CLIENT_ASAN`, `TARGET_KINDLE_DEBUG`, `TARGET_TEST_DEBUG`, and the conditional `DEBUG=1` toggle.
+
+- [ ] **Step 2: Verify `make debug` builds correctly**
+Run: `make debug`
+Expected: Produces `bin/kindle-telegram-debug` with `-g3 -O0 -DDEBUG`. Verify symbols with `file bin/kindle-telegram-debug`.
+
+- [ ] **Step 3: Verify `make client-asan` builds correctly**
+Run: `make client-asan`
+Expected: Produces `bin/kindle-telegram-asan`. Verify with `timeout 1s ./bin/kindle-telegram-asan < /dev/null`.
+
+- [ ] **Step 4: Verify `make client DEBUG=1` builds with debug flags**
+Run: `make clean && make client DEBUG=1`
+Expected: Compiles with `-g3 -O0 -DDEBUG`.
+
+- [ ] **Step 5: Verify `make test` and `make test-debug`**
+Run: `make test-debug`
+Expected: Builds `bin/test_runner_debug` and passes all tests.
+
+- [ ] **Step 6: Commit**
+```bash
+git add Makefile
+git commit -m "feat(build): add debug targets, client-asan, and DEBUG=1 support to Makefile"
+```
+
+---
+
+### Task 4: Documentation & Developer Guidance Updates
+
+**Files:**
+- Modify: `CLAUDE.md`
+- Modify: `README.md`
+
+- [ ] **Step 1: Update `CLAUDE.md`**
+Document `make debug`, `make client-debug`, `make client-asan`, `make test-debug`, and `DEBUG=1` in the Build & Test Commands section.
+
+- [ ] **Step 2: Update `README.md`**
+Add debug build instructions under the Quickstart & Local Host Emulation section, explaining GDB debugging and AddressSanitizer testing on host.
+
+- [ ] **Step 3: Verify documentation links and accuracy**
+Check anchor links and ensure syntax formatting is consistent.
+
+- [ ] **Step 4: Commit**
+```bash
+git add CLAUDE.md README.md
+git commit -m "docs: document debug builds, sanitizers, and GDB usage in CLAUDE.md and README.md"
+```
+
+---
+
+## Verification Plan
+
+1. **Host Debug Binary**:
+   - Run `make clean && make debug` -> verify `bin/kindle-telegram-debug` exists, has debug symbols (`file bin/kindle-telegram-debug` shows `not stripped`), and runs with `< /dev/null`.
+2. **Client ASan Binary**:
+   - Run `make client-asan` -> verify `bin/kindle-telegram-asan` exists and executes cleanly without sanitizer warnings.
+3. **Debug Flag Toggle (`DEBUG=1`)**:
+   - Run `make client DEBUG=1` and `make test DEBUG=1`.
+4. **Kindle Debug Target**:
+   - Run `make kindle-debug` (or verify target syntax if cross-compiler is not on host).
+5. **Unit Tests**:
+   - Run `make test` and `make test-asan` -> verify all 35 tests pass cleanly.
+6. **Clean Target**:
+   - Run `make clean` -> verify all `bin/` artifacts are cleaned up.
