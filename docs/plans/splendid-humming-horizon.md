@@ -29,21 +29,21 @@
 - Produces: `DebugLog::format(const std::string& tag, const std::string& message)` returning `std::string` formatted as `"[DEBUG][" + tag + "] " + message`
 - Macro: `DEBUG_LOG(tag, message)` which streams to `std::clog` when `-DDEBUG` is active, and expands to `do {} while (0)` when `-DDEBUG` is absent.
 
-- [ ] **Step 1: Write the failing unit test for DebugLog**
+- [x] **Step 1: Write the failing unit test for DebugLog**
 Create `tests/test_debug_log.cpp` testing `DebugLog::format` and verifying output string structure.
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 Run: `make test`
 Expected: FAIL with compilation error (missing `src/util/debug_log.h`).
 
-- [ ] **Step 3: Implement `src/util/debug_log.h`**
+- [x] **Step 3: Implement `src/util/debug_log.h`**
 Implement the header-only utility adhering to Object Calisthenics (0 `else`, single indent, small static formatter, conditional macro).
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 Run: `make test`
 Expected: PASS (all tests including `test_debug_log` pass).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 ```bash
 git add src/util/debug_log.h tests/test_debug_log.cpp
 git commit -m "feat(debug): add zero-overhead debug logging utility and unit tests"
@@ -61,20 +61,20 @@ git commit -m "feat(debug): add zero-overhead debug logging utility and unit tes
 **Interfaces:**
 - Consumes: `DEBUG_LOG(tag, message)` from `src/util/debug_log.h`
 
-- [ ] **Step 1: Add e-ink refresh logging**
+- [x] **Step 1: Add e-ink refresh logging**
 In `src/graphics/refresh_strategy.cpp`, emit `DEBUG_LOG("Eink", ...)` on `TypingRefresh` (logging DU partial bounding box) and `FullRefresh` (logging GC16 full flash reason).
 
-- [ ] **Step 2: Add host input event logging**
+- [x] **Step 2: Add host input event logging**
 In `src/hal/fallback_devices.cpp`, emit `DEBUG_LOG("Input", ...)` when mapping characters and escape sequences to `KeyCode`.
 
-- [ ] **Step 3: Add MTProto handshake logging**
+- [x] **Step 3: Add MTProto handshake logging**
 In `src/mtproto/handshake.cpp`, emit `DEBUG_LOG("MTProto", ...)` during DH key derivation stages.
 
-- [ ] **Step 4: Verify test suite remains green**
+- [x] **Step 4: Verify test suite remains green**
 Run: `make test && make test-asan`
 Expected: All 35 tests pass cleanly.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 ```bash
 git add src/graphics/refresh_strategy.cpp src/hal/fallback_devices.cpp src/mtproto/handshake.cpp
 git commit -m "feat(debug): add subsystem debug traces to e-ink, input, and mtproto"
@@ -97,26 +97,26 @@ git commit -m "feat(debug): add subsystem debug traces to e-ink, input, and mtpr
   * Updates `make help` with documentation for all debug commands.
   * Updates `make clean` to remove all debug binaries.
 
-- [ ] **Step 1: Update `Makefile` with debug flags and targets**
+- [x] **Step 1: Update `Makefile` with debug flags and targets**
 Add `DEBUG_CXXFLAGS`, `TARGET_CLIENT_DEBUG`, `TARGET_CLIENT_ASAN`, `TARGET_KINDLE_DEBUG`, `TARGET_TEST_DEBUG`, and the conditional `DEBUG=1` toggle.
 
-- [ ] **Step 2: Verify `make debug` builds correctly**
+- [x] **Step 2: Verify `make debug` builds correctly**
 Run: `make debug`
 Expected: Produces `bin/kindle-telegram-debug` with `-g3 -O0 -DDEBUG`. Verify symbols with `file bin/kindle-telegram-debug`.
 
-- [ ] **Step 3: Verify `make client-asan` builds correctly**
+- [x] **Step 3: Verify `make client-asan` builds correctly**
 Run: `make client-asan`
 Expected: Produces `bin/kindle-telegram-asan`. Verify with `timeout 1s ./bin/kindle-telegram-asan < /dev/null`.
 
-- [ ] **Step 4: Verify `make client DEBUG=1` builds with debug flags**
+- [x] **Step 4: Verify `make client DEBUG=1` builds with debug flags**
 Run: `make clean && make client DEBUG=1`
 Expected: Compiles with `-g3 -O0 -DDEBUG`.
 
-- [ ] **Step 5: Verify `make test` and `make test-debug`**
+- [x] **Step 5: Verify `make test` and `make test-debug`**
 Run: `make test-debug`
 Expected: Builds `bin/test_runner_debug` and passes all tests.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 ```bash
 git add Makefile
 git commit -m "feat(build): add debug targets, client-asan, and DEBUG=1 support to Makefile"
@@ -130,16 +130,16 @@ git commit -m "feat(build): add debug targets, client-asan, and DEBUG=1 support 
 - Modify: `CLAUDE.md`
 - Modify: `README.md`
 
-- [ ] **Step 1: Update `CLAUDE.md`**
+- [x] **Step 1: Update `CLAUDE.md`**
 Document `make debug`, `make client-debug`, `make client-asan`, `make test-debug`, and `DEBUG=1` in the Build & Test Commands section.
 
-- [ ] **Step 2: Update `README.md`**
+- [x] **Step 2: Update `README.md`**
 Add debug build instructions under the Quickstart & Local Host Emulation section, explaining GDB debugging and AddressSanitizer testing on host.
 
-- [ ] **Step 3: Verify documentation links and accuracy**
+- [x] **Step 3: Verify documentation links and accuracy**
 Check anchor links and ensure syntax formatting is consistent.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 ```bash
 git add CLAUDE.md README.md
 git commit -m "docs: document debug builds, sanitizers, and GDB usage in CLAUDE.md and README.md"
