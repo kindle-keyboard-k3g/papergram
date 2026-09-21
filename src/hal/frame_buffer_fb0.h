@@ -10,7 +10,7 @@ class FrameBufferLinuxFb0 final : public IFrameBuffer {
 public:
     static constexpr std::size_t WIDTH = 600U;
     static constexpr std::size_t HEIGHT = 800U;
-    static constexpr std::size_t BUFFER_SIZE = WIDTH * HEIGHT;
+    static constexpr std::size_t BUFFER_SIZE = (WIDTH * HEIGHT) / 2U;
 
     explicit FrameBufferLinuxFb0(const std::string& devicePath = "/dev/fb0");
     ~FrameBufferLinuxFb0() override;
@@ -24,6 +24,7 @@ public:
                   const GrayscaleColor& color) override;
     GrayscaleColor getPixel(const ScreenCoordinate& coordinate) const override;
     void clear(const GrayscaleColor& color) override;
+    void copyFrom(const std::uint8_t* buffer, std::size_t size) override;
     void flush() override;
     int fileDescriptor() const;
 
@@ -31,6 +32,9 @@ private:
     int file_descriptor_;
     unsigned char* mapped_memory_;
 
+    void pack8bppTo4bpp(const std::uint8_t* buffer, std::size_t count);
+    void setEvenPixel(std::size_t byte_index, std::uint8_t nibble, int x);
+    void setOddPixel(std::size_t byte_index, std::uint8_t nibble, int x);
     static std::size_t indexFor(const ScreenCoordinate& coordinate);
 };
 

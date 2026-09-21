@@ -90,35 +90,36 @@ constexpr std::uint16_t LINUX_KEY_Z = KEY_Z;
 
 namespace {
 bool translateLetter(std::uint16_t code, KeyCode& out) {
-    switch (code) {
-        case LINUX_KEY_A: out = KeyCode::KEY_A; return true;
-        case LINUX_KEY_B: out = KeyCode::KEY_B; return true;
-        case LINUX_KEY_C: out = KeyCode::KEY_C; return true;
-        case LINUX_KEY_D: out = KeyCode::KEY_D; return true;
-        case LINUX_KEY_E: out = KeyCode::KEY_E; return true;
-        case LINUX_KEY_F: out = KeyCode::KEY_F; return true;
-        case LINUX_KEY_G: out = KeyCode::KEY_G; return true;
-        case LINUX_KEY_H: out = KeyCode::KEY_H; return true;
-        case LINUX_KEY_I: out = KeyCode::KEY_I; return true;
-        case LINUX_KEY_J: out = KeyCode::KEY_J; return true;
-        case LINUX_KEY_K: out = KeyCode::KEY_K; return true;
-        case LINUX_KEY_L: out = KeyCode::KEY_L; return true;
-        case LINUX_KEY_M: out = KeyCode::KEY_M; return true;
-        case LINUX_KEY_N: out = KeyCode::KEY_N; return true;
-        case LINUX_KEY_O: out = KeyCode::KEY_O; return true;
-        case LINUX_KEY_P: out = KeyCode::KEY_P; return true;
-        case LINUX_KEY_Q: out = KeyCode::KEY_Q; return true;
-        case LINUX_KEY_R: out = KeyCode::KEY_R; return true;
-        case LINUX_KEY_S: out = KeyCode::KEY_S; return true;
-        case LINUX_KEY_T: out = KeyCode::KEY_T; return true;
-        case LINUX_KEY_U: out = KeyCode::KEY_U; return true;
-        case LINUX_KEY_V: out = KeyCode::KEY_V; return true;
-        case LINUX_KEY_W: out = KeyCode::KEY_W; return true;
-        case LINUX_KEY_X: out = KeyCode::KEY_X; return true;
-        case LINUX_KEY_Y: out = KeyCode::KEY_Y; return true;
-        case LINUX_KEY_Z: out = KeyCode::KEY_Z; return true;
-        default: return false;
+    static const std::uint16_t letter_codes[26] = {
+        LINUX_KEY_A, LINUX_KEY_B, LINUX_KEY_C, LINUX_KEY_D, LINUX_KEY_E, LINUX_KEY_F,
+        LINUX_KEY_G, LINUX_KEY_H, LINUX_KEY_I, LINUX_KEY_J, LINUX_KEY_K, LINUX_KEY_L,
+        LINUX_KEY_M, LINUX_KEY_N, LINUX_KEY_O, LINUX_KEY_P, LINUX_KEY_Q, LINUX_KEY_R,
+        LINUX_KEY_S, LINUX_KEY_T, LINUX_KEY_U, LINUX_KEY_V, LINUX_KEY_W, LINUX_KEY_X,
+        LINUX_KEY_Y, LINUX_KEY_Z
+    };
+    for (std::size_t i = 0; i < 26; ++i) {
+        if (letter_codes[i] == code) {
+            out = static_cast<KeyCode>(static_cast<int>(KeyCode::KEY_A) + i);
+            return true;
+        }
     }
+    return false;
+}
+
+bool translateNavigation(std::uint16_t code, KeyCode& out) {
+    if (code == LINUX_KEY_UP) { out = KeyCode::KEY_UP; return true; }
+    if (code == LINUX_KEY_DOWN) { out = KeyCode::KEY_DOWN; return true; }
+    if (code == LINUX_KEY_LEFT) { out = KeyCode::KEY_LEFT; return true; }
+    if (code == LINUX_KEY_RIGHT) { out = KeyCode::KEY_RIGHT; return true; }
+    if (code == LINUX_KEY_PAGEUP || code == 193 || code == 109) {
+        out = KeyCode::KEY_PAGEUP;
+        return true;
+    }
+    if (code == LINUX_KEY_PAGEDOWN || code == 104 || code == 191) {
+        out = KeyCode::KEY_PAGEDOWN;
+        return true;
+    }
+    return false;
 }
 
 bool translateSpecial(std::uint16_t code, KeyCode& out) {
@@ -127,17 +128,11 @@ bool translateSpecial(std::uint16_t code, KeyCode& out) {
         return true;
     }
     if (code == LINUX_KEY_0) { out = KeyCode::KEY_0; return true; }
-    if (code == LINUX_KEY_ENTER) { out = KeyCode::KEY_ENTER; return true; }
+    if (code == LINUX_KEY_ENTER || code == 194) { out = KeyCode::KEY_ENTER; return true; }
     if (code == LINUX_KEY_BACKSPACE) { out = KeyCode::KEY_BACKSPACE; return true; }
     if (code == LINUX_KEY_SPACE) { out = KeyCode::KEY_SPACE; return true; }
-    if (code == LINUX_KEY_UP) { out = KeyCode::KEY_UP; return true; }
-    if (code == LINUX_KEY_DOWN) { out = KeyCode::KEY_DOWN; return true; }
-    if (code == LINUX_KEY_LEFT) { out = KeyCode::KEY_LEFT; return true; }
-    if (code == LINUX_KEY_RIGHT) { out = KeyCode::KEY_RIGHT; return true; }
-    if (code == LINUX_KEY_PAGEUP) { out = KeyCode::KEY_PAGEUP; return true; }
-    if (code == LINUX_KEY_PAGEDOWN) { out = KeyCode::KEY_PAGEDOWN; return true; }
     if (code == LINUX_KEY_ESC || code == 158) { out = KeyCode::KEY_BACK; return true; }
-    return false;
+    return translateNavigation(code, out);
 }
 }
 

@@ -20,10 +20,13 @@ public:
     void setPixel(const ScreenCoordinate& coordinate, const GrayscaleColor& color) override;
     GrayscaleColor getPixel(const ScreenCoordinate& coordinate) const override;
     void clear(const GrayscaleColor& color) override;
+    void copyFrom(const std::uint8_t* buffer, std::size_t size) override;
     void flush() override;
 
 private:
     std::vector<GrayscaleColor> pixels_;
+
+    void copyPixels(const std::uint8_t* buffer, std::size_t count);
 };
 
 class DummyEinkController : public IEinkController {

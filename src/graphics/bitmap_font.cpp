@@ -15,7 +15,9 @@ char BitmapFont::normalized(char character) {
     return static_cast<char>(value);
 }
 
-std::uint8_t BitmapFont::patternRow(char character, std::size_t row) {
+namespace {
+
+std::uint8_t patternLetter(char upper, std::size_t row) {
     static const std::uint8_t letters[26][7] = {
         {14, 17, 17, 31, 17, 17, 17}, {30, 17, 17, 30, 17, 17, 30},
         {14, 17, 16, 16, 16, 17, 14}, {30, 17, 17, 17, 17, 17, 30},
@@ -30,34 +32,56 @@ std::uint8_t BitmapFont::patternRow(char character, std::size_t row) {
         {17, 17, 17, 17, 17, 17, 14}, {17, 17, 17, 17, 17, 10, 4},
         {17, 17, 17, 21, 21, 21, 10}, {17, 17, 10, 4, 10, 17, 17},
         {17, 17, 10, 4, 4, 4, 4}, {31, 1, 2, 4, 8, 16, 31}};
+    return letters[upper - 'A'][row];
+}
+
+std::uint8_t patternDigit(char digit, std::size_t row) {
     static const std::uint8_t digits[10][7] = {
         {14, 17, 19, 21, 25, 17, 14}, {4, 12, 4, 4, 4, 4, 14},
         {14, 17, 1, 2, 4, 8, 31}, {30, 1, 1, 14, 1, 1, 30},
         {2, 6, 10, 18, 31, 2, 2}, {31, 16, 16, 30, 1, 1, 30},
         {14, 16, 16, 30, 17, 17, 14}, {31, 1, 2, 4, 8, 8, 8},
         {14, 17, 17, 14, 17, 17, 14}, {14, 17, 17, 15, 1, 1, 14}};
-    const char upper = normalized(character);
-    if (upper >= 'A' && upper <= 'Z') {
-        return letters[upper - 'A'][row];
-    }
-    if (upper >= '0' && upper <= '9') {
-        return digits[upper - '0'][row];
-    }
-    if (upper == ' ') {
-        return 0U;
-    }
-    switch (upper) {
+    return digits[digit - '0'][row];
+}
+
+std::uint8_t patternQuestion(std::size_t row) {
+    if (row == 0U) return 14U;
+    if (row == 1U) return 17U;
+    if (row == 2U) return 1U;
+    if (row == 3U) return 2U;
+    if (row == 4U || row == 6U) return 4U;
+    return 0U;
+}
+
+std::uint8_t patternPunctuation(char ch, std::size_t row) {
+    switch (ch) {
         case '.': return row == 6U ? 4U : 0U;
         case ',': return row == 6U ? 4U : (row == 5U ? 8U : 0U);
         case '-': return row == 3U ? 14U : 0U;
+        case '+': return row == 3U ? 14U : (row >= 1U && row <= 5U ? 4U : 0U);
         case '_': return row == 6U ? 31U : 0U;
-        case ':': return row == 2U || row == 5U ? 4U : 0U;
+        case ':': return (row == 2U || row == 5U) ? 4U : 0U;
         case '!': return row == 6U ? 4U : (row < 5U ? 4U : 0U);
-        case '?': return row == 0U ? 14U : (row == 1U ? 17U :
-                         (row == 2U ? 1U : (row == 3U ? 2U :
-                         (row == 4U ? 4U : (row == 6U ? 4U : 0U)))));
-        default: return static_cast<std::uint8_t>((character + row * 3U) & 0x1FU);
+        case '?': return patternQuestion(row);
+        case '[': return (row == 0U || row == 6U) ? 14U : 8U;
+        case ']': return (row == 0U || row == 6U) ? 14U : 2U;
+        case '(': return (row == 0U || row == 6U) ? 4U : 8U;
+        case ')': return (row == 0U || row == 6U) ? 4U : 2U;
+        case '/': return row < 2U ? 2U : (row < 5U ? 4U : 8U);
+        case '%': return (row == 0U || row == 5U) ? 10U : 4U;
+        default: return 0U;
     }
+}
+
+}
+
+std::uint8_t BitmapFont::patternRow(char character, std::size_t row) {
+    const char upper = normalized(character);
+    if (upper >= 'A' && upper <= 'Z') return patternLetter(upper, row);
+    if (upper >= '0' && upper <= '9') return patternDigit(upper, row);
+    if (upper == ' ') return 0U;
+    return patternPunctuation(upper, row);
 }
 
 BitmapFont::Glyph BitmapFont::glyph(char character) const {

@@ -47,23 +47,56 @@ std::size_t FrameBufferLinuxFb0::height() const {
 
 void FrameBufferLinuxFb0::setPixel(const ScreenCoordinate& coordinate,
                                    const GrayscaleColor& color) {
-    mapped_memory_[indexFor(coordinate)] = color.value();
+    const std::size_t byte_index = indexFor(coordinate) / 2U;
+    const std::uint8_t nibble = static_cast<std::uint8_t>((255U - color.value()) >> 4U);
+    setEvenPixel(byte_index, nibble, coordinate.x());
+    setOddPixel(byte_index, nibble, coordinate.x());
+}
+
+void FrameBufferLinuxFb0::setEvenPixel(std::size_t byte_index, std::uint8_t nibble, int x) {
+    if ((x & 1) != 0) return;
+    mapped_memory_[byte_index] = (mapped_memory_[byte_index] & 0x0FU) | (nibble << 4U);
+}
+
+void FrameBufferLinuxFb0::setOddPixel(std::size_t byte_index, std::uint8_t nibble, int x) {
+    if ((x & 1) == 0) return;
+    mapped_memory_[byte_index] = (mapped_memory_[byte_index] & 0xF0U) | (nibble & 0x0FU);
 }
 
 GrayscaleColor FrameBufferLinuxFb0::getPixel(
     const ScreenCoordinate& coordinate) const {
-    return GrayscaleColor(mapped_memory_[indexFor(coordinate)]);
+    const std::size_t byte_index = indexFor(coordinate) / 2U;
+    const std::uint8_t byte_val = mapped_memory_[byte_index];
+    const std::uint8_t nibble = ((coordinate.x() & 1) == 0)
+                                    ? ((byte_val >> 4U) & 0x0FU)
+                                    : (byte_val & 0x0FU);
+    const std::uint8_t color_val = static_cast<std::uint8_t>(255U - (nibble << 4U));
+    return GrayscaleColor(color_val);
 }
 
 void FrameBufferLinuxFb0::clear(const GrayscaleColor& color) {
-    std::fill(mapped_memory_, mapped_memory_ + BUFFER_SIZE, color.value());
+    const std::uint8_t nibble = static_cast<std::uint8_t>((255U - color.value()) >> 4U);
+    const std::uint8_t byte_val = static_cast<std::uint8_t>((nibble << 4U) | nibble);
+    std::fill(mapped_memory_, mapped_memory_ + BUFFER_SIZE, byte_val);
+}
+
+void FrameBufferLinuxFb0::copyFrom(const std::uint8_t* buffer, std::size_t size) {
+    if (buffer == nullptr || mapped_memory_ == nullptr) return;
+    pack8bppTo4bpp(buffer, std::min(size, WIDTH * HEIGHT));
+}
+
+void FrameBufferLinuxFb0::pack8bppTo4bpp(const std::uint8_t* buffer, std::size_t count) {
+    const std::size_t pairs = count / 2U;
+    for (std::size_t i = 0; i < pairs; ++i) {
+        const std::uint8_t n0 = static_cast<std::uint8_t>((255U - buffer[i * 2U]) >> 4U);
+        const std::uint8_t n1 = static_cast<std::uint8_t>((255U - buffer[i * 2U + 1U]) >> 4U);
+        mapped_memory_[i] = static_cast<std::uint8_t>((n0 << 4U) | (n1 & 0x0FU));
+    }
 }
 
 void FrameBufferLinuxFb0::flush() {
-    if (::msync(mapped_memory_, BUFFER_SIZE, MS_SYNC) != 0) {
-        throw std::system_error(errno, std::generic_category(),
-                                "Unable to flush Linux framebuffer");
-    }
+    // Framebuffer memory is mapped with MAP_SHARED directly to video RAM.
+    // Display updates are signaled to the e-ink controller via ioctls.
 }
 
 int FrameBufferLinuxFb0::fileDescriptor() const {

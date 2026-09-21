@@ -29,6 +29,17 @@ void MemoryFrameBuffer::clear(const GrayscaleColor& color) {
     std::fill(pixels_.begin(), pixels_.end(), color);
 }
 
+void MemoryFrameBuffer::copyFrom(const std::uint8_t* buffer, std::size_t size) {
+    if (buffer == nullptr) return;
+    copyPixels(buffer, std::min(size, pixels_.size()));
+}
+
+void MemoryFrameBuffer::copyPixels(const std::uint8_t* buffer, std::size_t count) {
+    for (std::size_t i = 0; i < count; ++i) {
+        pixels_[i] = GrayscaleColor(buffer[i]);
+    }
+}
+
 void MemoryFrameBuffer::flush() {
     std::ofstream out("/tmp/kindle_fb.ppm", std::ios::binary);
     if (!out) return;

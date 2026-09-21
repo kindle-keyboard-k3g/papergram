@@ -70,6 +70,15 @@ TEST(canvas_blits_bitmap_text) {
     ASSERT_TRUE(canvas.hasNonWhitePixel(BoundingBox(16, 16, 31, 31)));
 }
 
+TEST(canvas_blits_punctuation_glyphs) {
+    Canvas canvas;
+    canvas.clear(GrayscaleColor::WHITE);
+    canvas.blitText(ScreenCoordinate(8, 16), "+[]()/%", GrayscaleColor::BLACK);
+
+    // Each character is 8x16, total width 7 * 8 = 56
+    ASSERT_TRUE(canvas.hasNonWhitePixel(BoundingBox(8, 16, 63, 31)));
+}
+
 TEST(canvas_exports_a_valid_ppm_frame) {
     const std::string filename = "/tmp/kindle-canvas-test.ppm";
     Canvas canvas;

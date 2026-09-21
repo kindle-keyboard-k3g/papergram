@@ -15,6 +15,7 @@ public:
                           const GrayscaleColor& color) = 0;
     virtual GrayscaleColor getPixel(const ScreenCoordinate& coordinate) const = 0;
     virtual void clear(const GrayscaleColor& color) = 0;
+    virtual void copyFrom(const std::uint8_t* buffer, std::size_t size) = 0;
     virtual void flush() = 0;
 };
 

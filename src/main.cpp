@@ -75,8 +75,9 @@ int main() {
 
     if (client.isAuthorized()) navigator.showChatList();
     navigator.render(canvas);
+    hw.fb->copyFrom(canvas.backBuffer(), Canvas::BUFFER_SIZE);
     hw.fb->flush();
-    full_refresh.refresh(dirty_tracker);
+    full_refresh.refresh(dirty_tracker, true);
 
     std::cout << "[Kindle Telegram] Ready. Initial frame saved to /tmp/kindle_fb.ppm" << std::endl;
     std::cout << "[Kindle Telegram] Entering main loop (listening for input)..." << std::endl;
@@ -85,8 +86,11 @@ int main() {
         if (hw.input->pollEvent(ev, 100)) {
             navigator.handleInput(ev);
             navigator.render(canvas);
+            hw.fb->copyFrom(canvas.backBuffer(), Canvas::BUFFER_SIZE);
             hw.fb->flush();
+            dirty_tracker.mark(BoundingBox(0, 0, 599, 799));
             typing_refresh.refresh(dirty_tracker);
+            dirty_tracker.clear();
             std::cout << "[Kindle Telegram] Screen updated -> /tmp/kindle_fb.ppm" << std::endl;
         }
         if (hw.input->isClosed()) {

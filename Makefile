@@ -11,7 +11,17 @@ else
 endif
 
 # Kindle ARM32 Toolchain Configuration (Kindle Keyboard / K3 i.MX35 ARMv6)
-KINDLE_CXX ?= arm-linux-gnueabi-g++
+MUSL_ARM_CXX := $(HOME)/.local/toolchains/armv6-linux-musleabi-cross/bin/armv6-linux-musleabi-g++
+MUSL_ARM_STRIP := $(HOME)/.local/toolchains/armv6-linux-musleabi-cross/bin/armv6-linux-musleabi-strip
+ifneq ($(wildcard $(MUSL_ARM_CXX)),)
+    KINDLE_CXX ?= $(MUSL_ARM_CXX)
+    KINDLE_STRIP ?= $(MUSL_ARM_STRIP)
+    KINDLE_STATIC_FLAG ?= -static
+else
+    KINDLE_CXX ?= arm-linux-gnueabi-g++
+    KINDLE_STRIP ?= arm-linux-gnueabi-strip
+    KINDLE_STATIC_FLAG ?= -static-libstdc++
+endif
 KINDLE_TCC ?= kindle-tiny-c-compiler
 KINDLE_FLAGS ?= -std=c++17 -O2 -march=armv6j -mtune=arm1136jf-s -mfpu=vfp -mfloat-abi=softfp -Isrc
 KINDLE_DEBUG_FLAGS ?= -std=c++17 -g -O0 -DDEBUG -march=armv6j -mtune=arm1136jf-s -mfpu=vfp -mfloat-abi=softfp -Isrc
@@ -90,7 +100,7 @@ test-asan: | $(BIN_DIR)
 kindle: $(APP_SRCS) | $(BIN_DIR)
 	@echo "==> Cross-compiling for Kindle Keyboard (ARMv6 softfp)..."
 	@if command -v "$(KINDLE_CXX)" >/dev/null 2>&1; then \
-		$(KINDLE_CXX) $(KINDLE_FLAGS) -static-libstdc++ $(APP_SRCS) -o $(TARGET_KINDLE); \
+		$(KINDLE_CXX) $(KINDLE_FLAGS) $(KINDLE_STATIC_FLAG) $(APP_SRCS) -o $(TARGET_KINDLE); \
 	elif command -v "$(KINDLE_TCC)" >/dev/null 2>&1; then \
 		echo "[INFO] Using Kindle tiny C/C++ compiler: $(KINDLE_TCC)"; \
 		$(KINDLE_TCC) $(KINDLE_FLAGS) $(APP_SRCS) -o $(TARGET_KINDLE); \
@@ -100,13 +110,16 @@ kindle: $(APP_SRCS) | $(BIN_DIR)
 		exit 1; \
 	fi
 	@test -x $(TARGET_KINDLE)
+	@if command -v "$(KINDLE_STRIP)" >/dev/null 2>&1; then \
+		$(KINDLE_STRIP) $(TARGET_KINDLE); \
+	fi
 	@echo "[SUCCESS] Built Kindle ARM32 binary at $(TARGET_KINDLE)"
 	@ls -lh $(TARGET_KINDLE)
 
 kindle-debug: $(APP_SRCS) | $(BIN_DIR)
 	@echo "==> Cross-compiling debug binary for Kindle Keyboard (ARMv6 softfp)..."
 	@if command -v "$(KINDLE_CXX)" >/dev/null 2>&1; then \
-		$(KINDLE_CXX) $(KINDLE_DEBUG_FLAGS) -static-libstdc++ $(APP_SRCS) -o $(TARGET_KINDLE_DEBUG); \
+		$(KINDLE_CXX) $(KINDLE_DEBUG_FLAGS) $(KINDLE_STATIC_FLAG) $(APP_SRCS) -o $(TARGET_KINDLE_DEBUG); \
 	elif command -v "$(KINDLE_TCC)" >/dev/null 2>&1; then \
 		echo "[INFO] Using Kindle tiny C/C++ compiler: $(KINDLE_TCC)"; \
 		$(KINDLE_TCC) $(KINDLE_DEBUG_FLAGS) $(APP_SRCS) -o $(TARGET_KINDLE_DEBUG); \

@@ -60,6 +60,13 @@ std::size_t body_length(const std::string& headers) {
     return value_start == std::string::npos ? 0U : static_cast<std::size_t>(std::stoul(lower.substr(value_start)));
 }
 
+bool is_complete(const std::string& received) {
+    const std::size_t separator = received.find("\r\n\r\n");
+    if (separator == std::string::npos) return false;
+    const std::size_t declared_length = body_length(received.substr(0U, separator));
+    return declared_length > 0U && received.size() >= separator + 4U + declared_length;
+}
+
 }
 
 HttpProxy::HttpProxy() : host(), port(0U) {}
@@ -134,6 +141,7 @@ bool HttpTransport::receive_response(int socket, std::vector<std::uint8_t>& resp
     ssize_t count = 0;
     while ((count = recv(socket, buffer, sizeof(buffer), 0)) > 0) {
         received.append(buffer, static_cast<std::size_t>(count));
+        if (is_complete(received)) break;
     }
     const std::size_t separator = received.find("\r\n\r\n");
     if (separator == std::string::npos || !status_is_success(received.substr(0U, separator))) {

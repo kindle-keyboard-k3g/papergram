@@ -9,12 +9,13 @@
 
 namespace {
 
-struct EinkDisplayUpdate {
-    int left;
-    int top;
-    int width;
-    int height;
-    int waveform;
+struct EinkUpdateArea {
+    int x1;
+    int y1;
+    int x2;
+    int y2;
+    int which_fx;
+    unsigned char* buffer;
 };
 
 }
@@ -57,8 +58,14 @@ int EinkControllerMxc::fileDescriptor() const {
 }
 
 void EinkControllerMxc::issueUpdate(const BoundingBox& area, int waveform) const {
-    EinkDisplayUpdate update{area.left(), area.top(), area.width(),
-                             area.height(), waveform};
+    EinkUpdateArea update{
+        area.left(),
+        area.top(),
+        area.left() + area.width(),
+        area.top() + area.height(),
+        waveform,
+        nullptr
+    };
     if (::ioctl(file_descriptor_, FBIO_EINK_UPDATE_DISPLAY_AREA, &update) < 0) {
         throw std::system_error(errno, std::generic_category(),
                                 "Unable to update e-ink display area");
