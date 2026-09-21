@@ -1,4 +1,13 @@
 #include "screen_navigator.h"
+#include "conversation_screen.h"
+
+namespace {
+void updateConversationTarget(IScreen* screen, const ChatId& chat_id, const std::string& title) {
+    auto* conversation = dynamic_cast<ConversationScreen*>(screen);
+    if (!conversation) return;
+    conversation->setChat(chat_id, title);
+}
+}
 
 ScreenNavigator::ScreenNavigator() = default;
 
@@ -8,7 +17,7 @@ void ScreenNavigator::setScreens(std::unique_ptr<IScreen> login,
     state_.login = std::move(login);
     state_.chat_list = std::move(chat_list);
     state_.conversation = std::move(conversation);
-    showLogin();
+    state_.active_screen = state_.login.get();
 }
 
 void ScreenNavigator::setScreensaver(std::unique_ptr<IScreen> screensaver) {
@@ -16,38 +25,41 @@ void ScreenNavigator::setScreensaver(std::unique_ptr<IScreen> screensaver) {
 }
 
 void ScreenNavigator::showLogin() {
+    if (state_.locked) return;
+    state_.active_conversation_id = std::nullopt;
     if (state_.active_screen) state_.active_screen->onExit();
     state_.active_screen = state_.login.get();
-    state_.active_conversation_id = std::nullopt;
     if (state_.active_screen) state_.active_screen->onEnter();
 }
 
 void ScreenNavigator::showChatList() {
+    if (state_.locked) return;
+    state_.active_conversation_id = std::nullopt;
     if (state_.active_screen) state_.active_screen->onExit();
     state_.active_screen = state_.chat_list.get();
-    state_.active_conversation_id = std::nullopt;
     if (state_.active_screen) state_.active_screen->onEnter();
 }
 
 void ScreenNavigator::openConversation(const ChatId& chat_id, const std::string& chat_title) {
+    if (state_.locked) return;
+    state_.active_conversation_id = chat_id;
+    updateConversationTarget(state_.conversation.get(), chat_id, chat_title);
     if (state_.active_screen) state_.active_screen->onExit();
     state_.active_screen = state_.conversation.get();
-    state_.active_conversation_id = chat_id;
-    if (state_.active_screen) {
-        state_.conversation->setChat(chat_id, chat_title);
-        state_.active_screen->onEnter();
-    }
+    if (state_.active_screen) state_.active_screen->onEnter();
 }
+
 
 void ScreenNavigator::lockScreen() {
     if (state_.locked) return;
     if (!state_.screensaver) return;
-    if (state_.active_screen) state_.active_screen->onExit();
     state_.previous_active_screen = state_.active_screen;
+    if (state_.active_screen) state_.active_screen->onExit();
     state_.active_screen = state_.screensaver.get();
     state_.locked = true;
-    state_.screensaver->onEnter();
+    if (state_.active_screen) state_.active_screen->onEnter();
 }
+
 
 void ScreenNavigator::unlockScreen() {
     if (!state_.locked) return;
