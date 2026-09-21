@@ -160,6 +160,8 @@ bool StdinInputDevice::mapCharToEvent(char ch, InputEvent& out) {
     if (ch == 27) return parseEscapeSequence(out);
     if (ch == 4) { closed_ = true; return false; }
     if (ch == '~') { out.code = KeyCode::KEY_POWER; return true; }
+    if (ch == 'm' || ch == 'M') { out.code = KeyCode::KEY_MENU; return true; }
     if (mapAlphaChar(ch, out)) return true;
     return mapDigitOrControl(ch, out);
 }
+

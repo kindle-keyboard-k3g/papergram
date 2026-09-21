@@ -3,6 +3,7 @@
 #include <linux/input.h>
 
 #undef KEY_POWER
+#undef KEY_MENU
 
 TEST(input_device_evdev_translates_power_keys) {
     InputDeviceEvdev device;
@@ -33,4 +34,13 @@ TEST(input_device_evdev_translates_alt_keys) {
     ASSERT_TRUE(device.translateCode(EV_KEY, 100, 0, ev));
     ASSERT_FALSE(ev.pressed);
     ASSERT_TRUE(ev.code == KeyCode::KEY_ALT);
+}
+
+TEST(input_device_evdev_translates_menu_key) {
+    InputDeviceEvdev device;
+    InputEvent ev{};
+
+    ASSERT_TRUE(device.translateCode(EV_KEY, 139, 1, ev));
+    ASSERT_TRUE(ev.pressed);
+    ASSERT_TRUE(ev.code == KeyCode::KEY_MENU);
 }

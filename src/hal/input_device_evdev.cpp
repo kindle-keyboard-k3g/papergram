@@ -23,6 +23,7 @@ constexpr std::uint16_t LINUX_KEY_RIGHTALT = KEY_RIGHTALT;
 constexpr std::uint16_t LINUX_KEY_POWER = 116;
 constexpr std::uint16_t LINUX_KEY_SLEEP = 142;
 constexpr std::uint16_t LINUX_KEY_SUSPEND = 205;
+constexpr std::uint16_t LINUX_KEY_MENU = 139;
 
 constexpr std::uint16_t LETTER_CODES[26] = {
     KEY_A, KEY_B, KEY_C, KEY_D, KEY_E, KEY_F, KEY_G, KEY_H, KEY_I, KEY_J,
@@ -76,6 +77,7 @@ constexpr std::uint16_t LETTER_CODES[26] = {
 #undef KEY_POWER
 #undef KEY_SLEEP
 #undef KEY_SUSPEND
+#undef KEY_MENU
 
 namespace {
 bool translateLetter(std::uint16_t code, KeyCode& out) {
@@ -114,6 +116,7 @@ bool translatePower(std::uint16_t code, KeyCode& out) {
 
 bool translateSpecial(std::uint16_t code, KeyCode& out) {
     if (translatePower(code, out)) return true;
+    if (code == LINUX_KEY_MENU || code == 139) { out = KeyCode::KEY_MENU; return true; }
     if (code >= LINUX_KEY_1 && code <= LINUX_KEY_9) {
         out = static_cast<KeyCode>(static_cast<int>(KeyCode::KEY_1) + (code - LINUX_KEY_1));
         return true;

@@ -34,3 +34,16 @@ TEST(stdin_input_device_maps_tilde_to_key_power) {
     ASSERT_TRUE(ev.pressed);
     ASSERT_TRUE(ev.code == KeyCode::KEY_POWER);
 }
+
+TEST(stdin_input_device_maps_m_to_key_menu) {
+    StdinInputDevice device;
+    InputEvent ev{};
+    ASSERT_TRUE(device.mapCharToEvent('m', ev));
+    ASSERT_TRUE(ev.pressed);
+    ASSERT_TRUE(ev.code == KeyCode::KEY_MENU);
+
+    ASSERT_TRUE(device.mapCharToEvent('M', ev));
+    ASSERT_TRUE(ev.pressed);
+    ASSERT_TRUE(ev.code == KeyCode::KEY_MENU);
+}
+
