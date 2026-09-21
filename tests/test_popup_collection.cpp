@@ -26,6 +26,28 @@ ui::PopupEntry entry(const std::string& title,
     return ui::PopupEntry(card, ui::PopupDuration(std::chrono::milliseconds(duration)));
 }
 
+bool renderedTitleMatches(const Canvas& canvas, const BoundingBox& bounds,
+                          const std::string& title) {
+    Canvas expected;
+    expected.clear(GrayscaleColor::WHITE);
+    const std::vector<std::string> lines = {"Line"};
+    ui::ToastNotification card(bounds, title, lines);
+    card.render(expected);
+    const int first_x = bounds.left() + 8;
+    const int last_x = bounds.left() + 220;
+    const int first_y = bounds.top() + 4;
+    const int last_y = bounds.top() + 25;
+    for (int y = first_y; y <= last_y; ++y) {
+        for (int x = first_x; x <= last_x; ++x) {
+            if (canvas.pixelAt(ScreenCoordinate(x, y)) !=
+                expected.pixelAt(ScreenCoordinate(x, y))) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 } // namespace
 
 TEST(popup_layout_calculates_bottom_and_top_bounds) {
@@ -82,6 +104,38 @@ TEST(popup_collection_visual_stack_keeps_newest_four_items) {
                       PopupMode::VISUAL_STACK);
     ASSERT_TRUE(canvas.hasNonWhitePixel(BoundingBox(30, 692, 570, 760)));
     ASSERT_TRUE(canvas.hasNonWhitePixel(BoundingBox(30, 548, 570, 616)));
+    ASSERT_TRUE(renderedTitleMatches(
+        canvas, ui::PopupLayout().calculateBounds(0U, PopupPosition::BOTTOM),
+        "Five"));
+    ASSERT_TRUE(renderedTitleMatches(
+        canvas, ui::PopupLayout().calculateBounds(1U, PopupPosition::BOTTOM),
+        "Four"));
+    ASSERT_TRUE(renderedTitleMatches(
+        canvas, ui::PopupLayout().calculateBounds(2U, PopupPosition::BOTTOM),
+        "Three"));
+    ASSERT_TRUE(renderedTitleMatches(
+        canvas, ui::PopupLayout().calculateBounds(3U, PopupPosition::BOTTOM),
+        "Two"));
+    ASSERT_FALSE(renderedTitleMatches(
+        canvas, ui::PopupLayout().calculateBounds(0U, PopupPosition::BOTTOM),
+        "One"));
+}
+
+TEST(popup_collection_visual_stack_removes_expired_items) {
+    ui::PopupCollection collection;
+    const ui::PopupTimestamp now = timestamp(0);
+
+    ASSERT_TRUE(collection.push(entry("Short", "short", 100),
+                                PopupMode::VISUAL_STACK, now));
+    ASSERT_TRUE(collection.push(entry("Long", "long", 200),
+                                PopupMode::VISUAL_STACK, now));
+    ASSERT_FALSE(collection.update(timestamp(99), PopupMode::VISUAL_STACK));
+    ASSERT_TRUE(collection.update(timestamp(100), PopupMode::VISUAL_STACK));
+    ASSERT_EQ(static_cast<std::size_t>(1),
+              collection.visibleCount(PopupMode::VISUAL_STACK));
+    ASSERT_TRUE(collection.update(timestamp(200), PopupMode::VISUAL_STACK));
+    ASSERT_EQ(static_cast<std::size_t>(0),
+              collection.visibleCount(PopupMode::VISUAL_STACK));
 }
 
 TEST(popup_collection_sequential_queue_promotes_waiting_item) {
