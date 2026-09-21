@@ -54,6 +54,8 @@ public:
 private:
     bool readChar(char& ch, int timeoutMs);
     bool mapCharToEvent(char ch, InputEvent& out);
+    bool mapAlphaChar(char ch, InputEvent& out);
+    bool mapDigitOrControl(char ch, InputEvent& out);
     bool parseEscapeSequence(InputEvent& out);
     bool mapAnsiBracketSequence(char code, InputEvent& out);
 

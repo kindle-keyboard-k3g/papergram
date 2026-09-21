@@ -1,8 +1,10 @@
 #include "handshake.h"
 
 #include "tl_codec.h"
+#include "util/debug_log.h"
 
 #include <stdexcept>
+#include <string>
 
 namespace mtproto {
 namespace {
@@ -129,6 +131,7 @@ PqFactors factorize_pq(std::uint64_t pq) {
     if (pq < 4U || is_prime(pq)) {
         throw std::invalid_argument("pq must have two factors");
     }
+    DEBUG_LOG("MTProto", "Factorizing PQ: " + std::to_string(pq));
     const std::uint64_t factor = pollard_rho(pq);
     const std::uint64_t other = pq / factor;
     return factor < other ? PqFactors{factor, other} : PqFactors{other, factor};
@@ -137,6 +140,7 @@ PqFactors factorize_pq(std::uint64_t pq) {
 BigInteger derive_shared_key(const BigInteger& peer_public,
                              const BigInteger& private_exponent,
                              const BigInteger& dh_prime) {
+    DEBUG_LOG("MTProto", "Deriving shared DH key");
     return modular_exponentiation(peer_public, private_exponent, dh_prime);
 }
 
@@ -144,11 +148,13 @@ MtprotoHandshake::MtprotoHandshake(const BigInteger& dh_prime, const BigInteger&
     : dh_prime_(dh_prime), generator_(generator) {}
 
 BigInteger MtprotoHandshake::client_public(const BigInteger& private_exponent) const {
+    DEBUG_LOG("MTProto", "Generating client DH public key");
     return modular_exponentiation(generator_, private_exponent, dh_prime_);
 }
 
 BigInteger MtprotoHandshake::auth_key(const BigInteger& server_public,
                                        const BigInteger& client_private) const {
+    DEBUG_LOG("MTProto", "Computing shared auth key");
     return derive_shared_key(server_public, client_private, dh_prime_);
 }
 

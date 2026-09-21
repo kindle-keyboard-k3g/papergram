@@ -1,17 +1,24 @@
 #include "refresh_strategy.h"
+#include "util/debug_log.h"
+#include <string>
 
 TypingRefresh::TypingRefresh(IEinkController& controller)
     : controller_(controller) {}
 
 void TypingRefresh::refresh(const DirtyTracker& tracker, bool screenChanged) {
     if (screenChanged) {
+        DEBUG_LOG("Eink", "TypingRefresh triggered full refresh: screen changed");
         controller_.fullRefresh();
         return;
     }
     if (!tracker.hasDirty()) {
         return;
     }
-    controller_.updateArea(tracker.boundingBox(), false);
+    const BoundingBox box = tracker.boundingBox();
+    DEBUG_LOG("Eink", "TypingRefresh DU partial update: [" +
+              std::to_string(box.left()) + "," + std::to_string(box.top()) +
+              " - " + std::to_string(box.right()) + "," + std::to_string(box.bottom()) + "]");
+    controller_.updateArea(box, false);
 }
 
 FullRefresh::FullRefresh(IEinkController& controller)
@@ -19,6 +26,7 @@ FullRefresh::FullRefresh(IEinkController& controller)
 
 void FullRefresh::refresh(const DirtyTracker& tracker, bool screenChanged) {
     if (screenChanged) {
+        DEBUG_LOG("Eink", "FullRefresh GC16 full flash: screen changed");
         refreshFully();
         return;
     }
@@ -26,10 +34,15 @@ void FullRefresh::refresh(const DirtyTracker& tracker, bool screenChanged) {
         return;
     }
     if (reachesLimit()) {
+        DEBUG_LOG("Eink", "FullRefresh GC16 full flash: reached keystroke limit");
         refreshFully();
         return;
     }
-    controller_.updateArea(tracker.boundingBox(), false);
+    const BoundingBox box = tracker.boundingBox();
+    DEBUG_LOG("Eink", "FullRefresh DU partial update: [" +
+              std::to_string(box.left()) + "," + std::to_string(box.top()) +
+              " - " + std::to_string(box.right()) + "," + std::to_string(box.bottom()) + "]");
+    controller_.updateArea(box, false);
     ++keystrokes_;
 }
 

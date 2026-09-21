@@ -1,4 +1,5 @@
 #include "fallback_devices.h"
+#include "util/debug_log.h"
 #include <algorithm>
 #include <fstream>
 #include <poll.h>
@@ -98,6 +99,7 @@ bool StdinInputDevice::parseEscapeSequence(InputEvent& out) {
     char seq[2] = {0, 0};
     if (!readChar(seq[0], 20)) {
         out.code = KeyCode::KEY_BACK;
+        DEBUG_LOG("Input", "Mapped standalone escape to KEY_BACK");
         return true;
     }
     if (seq[0] != '[') return false;
@@ -106,12 +108,39 @@ bool StdinInputDevice::parseEscapeSequence(InputEvent& out) {
 }
 
 bool StdinInputDevice::mapAnsiBracketSequence(char code, InputEvent& out) {
-    if (code == 'A') { out.code = KeyCode::KEY_UP; return true; }
-    if (code == 'B') { out.code = KeyCode::KEY_DOWN; return true; }
-    if (code == 'C') { out.code = KeyCode::KEY_RIGHT; return true; }
-    if (code == 'D') { out.code = KeyCode::KEY_LEFT; return true; }
-    if (code == '5') { out.code = KeyCode::KEY_PAGEUP; return true; }
-    if (code == '6') { out.code = KeyCode::KEY_PAGEDOWN; return true; }
+    if (code == 'A') { out.code = KeyCode::KEY_UP; DEBUG_LOG("Input", "Mapped ANSI sequence to KEY_UP"); return true; }
+    if (code == 'B') { out.code = KeyCode::KEY_DOWN; DEBUG_LOG("Input", "Mapped ANSI sequence to KEY_DOWN"); return true; }
+    if (code == 'C') { out.code = KeyCode::KEY_RIGHT; DEBUG_LOG("Input", "Mapped ANSI sequence to KEY_RIGHT"); return true; }
+    if (code == 'D') { out.code = KeyCode::KEY_LEFT; DEBUG_LOG("Input", "Mapped ANSI sequence to KEY_LEFT"); return true; }
+    if (code == '5') { out.code = KeyCode::KEY_PAGEUP; DEBUG_LOG("Input", "Mapped ANSI sequence to KEY_PAGEUP"); return true; }
+    if (code == '6') { out.code = KeyCode::KEY_PAGEDOWN; DEBUG_LOG("Input", "Mapped ANSI sequence to KEY_PAGEDOWN"); return true; }
+    return false;
+}
+
+bool StdinInputDevice::mapAlphaChar(char ch, InputEvent& out) {
+    if (ch >= 'a' && ch <= 'z') {
+        out.code = static_cast<KeyCode>(static_cast<int>(KeyCode::KEY_A) + (ch - 'a'));
+        DEBUG_LOG("Input", std::string("Mapped char '") + ch + "' to KeyCode");
+        return true;
+    }
+    if (ch >= 'A' && ch <= 'Z') {
+        out.code = static_cast<KeyCode>(static_cast<int>(KeyCode::KEY_A) + (ch - 'A'));
+        DEBUG_LOG("Input", std::string("Mapped char '") + ch + "' to KeyCode");
+        return true;
+    }
+    return false;
+}
+
+bool StdinInputDevice::mapDigitOrControl(char ch, InputEvent& out) {
+    if (ch >= '1' && ch <= '9') {
+        out.code = static_cast<KeyCode>(static_cast<int>(KeyCode::KEY_1) + (ch - '1'));
+        DEBUG_LOG("Input", std::string("Mapped digit '") + ch + "' to KeyCode");
+        return true;
+    }
+    if (ch == '0') { out.code = KeyCode::KEY_0; DEBUG_LOG("Input", "Mapped '0' to KEY_0"); return true; }
+    if (ch == '\n' || ch == '\r') { out.code = KeyCode::KEY_ENTER; DEBUG_LOG("Input", "Mapped newline to KEY_ENTER"); return true; }
+    if (ch == 127 || ch == '\b') { out.code = KeyCode::KEY_BACKSPACE; DEBUG_LOG("Input", "Mapped backspace to KEY_BACKSPACE"); return true; }
+    if (ch == ' ') { out.code = KeyCode::KEY_SPACE; DEBUG_LOG("Input", "Mapped space to KEY_SPACE"); return true; }
     return false;
 }
 
@@ -119,21 +148,6 @@ bool StdinInputDevice::mapCharToEvent(char ch, InputEvent& out) {
     out.pressed = true;
     if (ch == 27) return parseEscapeSequence(out);
     if (ch == 4) { closed_ = true; return false; }
-    if (ch >= 'a' && ch <= 'z') {
-        out.code = static_cast<KeyCode>(static_cast<int>(KeyCode::KEY_A) + (ch - 'a'));
-        return true;
-    }
-    if (ch >= 'A' && ch <= 'Z') {
-        out.code = static_cast<KeyCode>(static_cast<int>(KeyCode::KEY_A) + (ch - 'A'));
-        return true;
-    }
-    if (ch >= '1' && ch <= '9') {
-        out.code = static_cast<KeyCode>(static_cast<int>(KeyCode::KEY_1) + (ch - '1'));
-        return true;
-    }
-    if (ch == '0') { out.code = KeyCode::KEY_0; return true; }
-    if (ch == '\n' || ch == '\r') { out.code = KeyCode::KEY_ENTER; return true; }
-    if (ch == 127 || ch == '\b') { out.code = KeyCode::KEY_BACKSPACE; return true; }
-    if (ch == ' ') { out.code = KeyCode::KEY_SPACE; return true; }
-    return false;
+    if (mapAlphaChar(ch, out)) return true;
+    return mapDigitOrControl(ch, out);
 }

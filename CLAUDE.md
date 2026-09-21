@@ -5,9 +5,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Build & Test Commands
 
 - **Build native/host client**: `make client` (outputs `bin/kindle-telegram`)
+- **Build native debug client**: `make debug` or `make client-debug` (outputs `bin/kindle-telegram-debug` with `-g3 -O0 -DDEBUG`)
+- **Build native AddressSanitizer client**: `make client-asan` (outputs `bin/kindle-telegram-asan` with `-g -O1 -fsanitize=address,undefined -DDEBUG`)
 - **Run all unit tests**: `make test` (builds and executes `bin/test_runner`)
+- **Run unit tests in debug mode**: `make test-debug` (builds and executes `bin/test_runner_debug` with runtime debug traces)
 - **Run tests with AddressSanitizer & UBSan**: `make test-asan`
+- **Dynamic debug flag toggle**: pass `DEBUG=1` to any target (e.g. `make client DEBUG=1`, `make test DEBUG=1`) to switch flags to `-g3 -O0 -DDEBUG`
 - **Cross-compile for Kindle ARM32**: `make kindle` (outputs `bin/kindle-telegram-arm32`; requires `arm-linux-gnueabi-g++` or `kindle-tiny-c-compiler`)
+- **Cross-compile Kindle ARM32 debug binary**: `make kindle-debug` (outputs `bin/kindle-telegram-arm32-debug` with `-g -O0 -DDEBUG` symbols for gdbserver)
 - **Clean build artifacts**: `make clean`
 - **Run a single test suite**: compile the specific test file alongside core sources and the test runner:
   ```bash
