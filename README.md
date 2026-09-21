@@ -174,12 +174,33 @@ You do not need physical Kindle hardware to develop, test, or evaluate Papergram
 ### 1. Build Native Host Executable
 
 ```bash
+# Production release build (-O2, zero debug overhead)
 make client
 ```
 
 Binary will be produced at `bin/kindle-telegram`.
 
-### 2. Run Locally on Host
+### 2. Debug Builds & Local Emulation
+
+For active development, Papergram provides dedicated debug targets with unoptimized symbols (`-g3 -O0`) and conditional subsystem logging (`-DDEBUG`):
+
+```bash
+# Build native debug binary with GDB symbols and subsystem debug traces
+make debug
+# or: make client-debug
+
+# Launch under GDB
+gdb ./bin/kindle-telegram-debug
+
+# Build and run native client with AddressSanitizer and UndefinedBehaviorSanitizer
+make client-asan
+./bin/kindle-telegram-asan
+
+# Dynamically compile any target with debug flags
+make client DEBUG=1
+```
+
+### 3. Run Locally on Host
 
 ```bash
 ./bin/kindle-telegram
@@ -194,17 +215,18 @@ xdg-open /tmp/kindle_fb.ppm
 display /tmp/kindle_fb.ppm
 ```
 
-### 3. Run Unit Test Suite
+### 4. Run Unit Test Suite
 
 Papergram includes a comprehensive zero-dependency test suite covering crypto primitives, canvas operations, e-ink refresh scheduling, domain value objects, and screen navigators:
 
 ```bash
+# Run standard test suite
 make test
-```
 
-### 4. Run Sanitizers (ASan & UBSan)
+# Run test suite with live subsystem debug traces
+make test-debug
 
-```bash
+# Run test suite under AddressSanitizer & UBSan
 make test-asan
 ```
 
@@ -224,8 +246,11 @@ make test-asan
 ### 2. Cross-Compile & Deploy
 
 ```bash
-# Cross-compile for Kindle ARM32
+# Cross-compile release binary for Kindle ARM32
 make kindle
+
+# Or cross-compile debug binary with symbols for Kindle gdbserver
+make kindle-debug
 
 # Create destination directory on Kindle user storage
 ssh root@<kindle-ip> "mkdir -p /mnt/us/telegram"
