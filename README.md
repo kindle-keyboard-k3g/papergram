@@ -13,37 +13,29 @@
 
 ## ASCII Screen & Interface
 
-Papergram renders directly to the Kindle Keyboard 600×800 8bpp display buffer with word wrapping at 58 characters, message bubbles, and real-time status:
+Papergram renders directly to the Kindle Keyboard 600×800 8bpp display buffer with word wrapping at 58 characters, RPG-style dialogue bubbles, double-line toast notifications, and real-time status overlays:
 
 ```text
 +-------------------------------------------------------------------------+
-| Papergram (Alice)                    12:34 PM   [98%]   [Wi-Fi]  [Back] |
+| Papergram :: Alice                   12:34 PM   [98%]   [Wi-Fi]  [Back] |
 +-------------------------------------------------------------------------+
 |                                                                         |
 |  +-------------------------------------------------------------+        |
-|  | Alice:                                                      |        |
+|  | # Alice                                               12:30 |        |
 |  | Hey! Did you really get Telegram running on your Kindle     |        |
 |  | Keyboard?!                                                  |        |
-|  |                                                       12:30 |        |
 |  +-------------------------------------------------------------+        |
 |                                                                         |
 |                    +--------------------------------------------------+ |
+|                    | * You                                      12:32 | |
 |                    | Yes! Zero servers, direct MTProto over Wi-Fi     | |
 |                    | and 3G cellular. Fast DU partial e-ink updates!  | |
-|                    |                                            12:32 | |
 |                    +--------------------------------------------------+ |
 |                                                                         |
-|  +-------------------------------------------------------------+        |
-|  | Alice:                                                      |        |
-|  | That battery life must be incredible. Reading messages on   |        |
-|  | E-Ink Pearl feels like reading an actual book!              |        |
-|  |                                                       12:33 |        |
-|  +-------------------------------------------------------------+        |
-|                                                                         |
-|                    +--------------------------------------------------+ |
-|                    | Typing on the physical keyboard feels great.     | |
-|                    |                                            12:34 | |
-|                    +--------------------------------------------------+ |
+|  +=============================================================+        |
+|  || [ToastNotification: Double-line bordered card]            ||        |
+|  || Keyboard Shortcut: Press Alt+G to clear e-ink ghosting    ||        |
+|  +=============================================================+        |
 |                                                                         |
 +-------------------------------------------------------------------------+
 | > Type a message..._                                          [Enter ↵] |
@@ -56,6 +48,7 @@ Papergram renders directly to the Kindle Keyboard 600×800 8bpp display buffer w
 
 - [Highlights & Key Features](#highlights--key-features)
 - [ASCII Screen & Interface](#ascii-screen--interface)
+- [UI/UX Design: Modern Game Boy Aesthetics](#uiux-design-modern-game-boy-aesthetics)
 - [Hardware Specifications & Compatibility](#hardware-specifications--compatibility)
 - [System Architecture](#system-architecture)
 - [Prerequisites & Toolchain Setup](#prerequisites--toolchain-setup)
@@ -71,6 +64,10 @@ Papergram renders directly to the Kindle Keyboard 600×800 8bpp display buffer w
 ## Highlights & Key Features
 
 - **On-Device & Serverless**: Runs 100% locally on the Kindle device. Connects directly to Telegram DC servers via MTProto RPC without any intermediate VPS bridge, companion daemon, or third-party relay.
+- **Modern Game Boy UI/UX Aesthetic**:
+  - Reimagines classic 1989 handheld gaming aesthetics (4-shade contrast, tactile dialog boxes, D-pad ergonomics) into a crisp, distraction-free modern messaging experience.
+  - High-contrast 4-tone grayscale (`WHITE`, `LIGHT_GRAY`, `DARK_GRAY`, `BLACK`) custom-tailored for sunlight readability on 6.0" E-Ink Pearl displays.
+  - RPG dialogue-style speech bubbles, double-bordered toast notification cards, and clean monospace information badges.
 - **Fast E-Ink Dual Refresh Engine**:
   - Direct Linux framebuffer access via `/dev/fb0` (600×800, 8bpp grayscale, 480 KB double buffer).
   - Hardware-accelerated DU (Direct Update) partial refreshes via `FBIO_EINK_UPDATE_DISPLAY_AREA` ioctl (`0x46dd`), delivering sub-50ms latency for typing and cursor blinking.
@@ -91,6 +88,44 @@ Papergram renders directly to the Kindle Keyboard 600×800 8bpp display buffer w
   - 1 indentation level per method; methods ≤ 15 lines; classes ≤ 100 lines; ≤ 2 instance fields per class.
   - Domain primitives wrapped in strong types (`PhoneNumber`, `AuthCode`, `ChatId`, `MessageId`, `MessageText`, `ScreenCoordinate`, `BoundingBox`, `GrayscaleColor`).
   - First-class collections (`ChatList`, `MessageHistory`, `DirtyRegionList`).
+
+---
+
+## UI/UX Design: Modern Game Boy Aesthetics
+
+Papergram takes the iconic aesthetic of the original 1989 Nintendo Game Boy (DMG-01)—its high-contrast 4-shade display, chunky tactile dialogue boxes, and D-pad-driven menu navigation—and reimagines it as a clean, distraction-free modern user experience for the Kindle Keyboard's 6.0" E-Ink Pearl screen.
+
+Detailed specification is available in the [UI/UX Design System SOT](docs/sot/ui_ux_design.md).
+
+### 1. The 4-Tone Grayscale Hierarchy
+
+Rather than attempting to simulate heavy transparency or soft anti-aliased gradients (which produce severe e-ink ghosting and require frequent screen clears), Papergram embraces a disciplined 4-tone palette:
+
+```
+[ WHITE #FFFFFF ]   Canvas background, message bubbles, maximum reflective clarity
+[ LIGHT GRAY #C0 ]   Selected chat rows, card fills, tactile button surfaces
+[ DARK GRAY #80 ]   Inner card borders, timestamps, metadata labels, status icons
+[ BLACK #000000 ]   Primary typography, outer borders, active cursor indicators
+```
+
+- **Direct Sunlight Legibility**: High black-on-white and black-on-light-gray contrast ensures flawless readability under harsh outdoor lighting.
+- **Waveform Friendly**: Flat solid geometries enable sub-50ms DU (Direct Update) partial refreshes without leaving messy residual particle trails.
+
+### 2. Dialogue Boxes & Visual Affordances
+
+- **RPG-Style Message Bubbles**: Incoming and outgoing messages are housed in crisp rectangular bubbles framed by 1px solid black borders with clear speaker tags and right-aligned timestamps.
+- **Double-Border Dialogue Cards**: Toast notifications and alert popups use double-nested borders (1px outer black, 2px inset dark gray) atop a light-gray fill—paying homage to classic handheld RPG dialogue boxes while presenting structured, modern system feedback.
+- **Micro-Typography & Status Badges**: Monospace brackets encase system status (`[98%]`, `[Wi-Fi]`, `[Back]`, `[Enter ↵]`) and unread indicators (`[3]`), reinforcing the retro-digital personality.
+
+### 3. D-Pad First Tactile Navigation
+
+With no touchscreen on the Kindle Keyboard, Papergram treats physical controls like a handheld console:
+
+- **D-Pad**: Seamless menu browsing with selection wrapping and conversation scrolling.
+- **Enter (D-Pad Center)**: Acts as the **A Button** (Confirm / Open / Send).
+- **Back Key**: Acts as the **B Button** (Dismiss / Return to Chat List).
+- **Page Rockers**: Act as **L / R Shoulder Bumpers** (Instant full-page scroll).
+- **Alt + G**: **Ghostbuster** (Forces an instant full GC16 flash refresh to eliminate any residual e-ink toner particles).
 
 ---
 
