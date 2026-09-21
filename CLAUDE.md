@@ -45,7 +45,10 @@ Input (/dev/input/event[0..2] or stdin) -> ScreenNavigator -> Active Screen -> C
    - `Canvas`: 600x800 8bpp double-buffered drawing surface with primitive drawing and PPM export.
    - `BitmapFont`: Monospace 8x16 embedded bitmap glyphs (ASCII + Latin-1) without external font engines.
    - `DirtyTracker`: Aggregates bounding boxes for partial e-ink updates.
-   - `EinkRefreshStrategy`: `TypingRefresh` (fast DU partial updates) and `FullRefresh` (periodic GC16 flash every 15 keystrokes or screen transitions to clear ghosting).
+   - `BufferDiffTracker`: Compares `frontBuffer` vs `backBuffer` to detect general changed regions and specific dark-to-white transitions.
+   - `DarkToWhiteCleaner`: Issues an immediate second DU cleaning pass on dark-to-white regions to eliminate ghosting.
+   - `IdleRefreshScheduler`: Sweeps the screen in a 4x4 interleaved checkerboard grid (16 tiles of 150x200 px) during idle periods (5s threshold, 400ms cadence) with instant preemption on user input.
+   - `EinkRefreshStrategy`: `TypingRefresh` (fast DU partial updates) and `FullRefresh` (periodic GC16 flash every 15 keystrokes, screen transitions, or manual `Alt+G` ghostbuster to clear ghosting).
 
 3. **Telegram MTProto Core (`src/mtproto/`)**:
    - `crypto.h/.cpp`: Zero-dependency AES-256-IGE, SHA-1, SHA-256, and BigInteger modular exponentiation.

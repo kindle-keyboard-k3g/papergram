@@ -18,6 +18,8 @@ constexpr std::uint16_t LINUX_KEY_RIGHT = KEY_RIGHT;
 constexpr std::uint16_t LINUX_KEY_PAGEUP = KEY_PAGEUP;
 constexpr std::uint16_t LINUX_KEY_PAGEDOWN = KEY_PAGEDOWN;
 constexpr std::uint16_t LINUX_KEY_ESC = KEY_ESC;
+constexpr std::uint16_t LINUX_KEY_LEFTALT = KEY_LEFTALT;
+constexpr std::uint16_t LINUX_KEY_RIGHTALT = KEY_RIGHTALT;
 constexpr std::uint16_t LINUX_KEY_POWER = 116;
 constexpr std::uint16_t LINUX_KEY_SLEEP = 142;
 constexpr std::uint16_t LINUX_KEY_SUSPEND = 205;
@@ -42,6 +44,8 @@ constexpr std::uint16_t LETTER_CODES[26] = {
 #undef KEY_PAGEUP
 #undef KEY_PAGEDOWN
 #undef KEY_ESC
+#undef KEY_LEFTALT
+#undef KEY_RIGHTALT
 #undef KEY_BACK
 #undef KEY_A
 #undef KEY_B
@@ -119,6 +123,7 @@ bool translateSpecial(std::uint16_t code, KeyCode& out) {
     if (code == LINUX_KEY_BACKSPACE) { out = KeyCode::KEY_BACKSPACE; return true; }
     if (code == LINUX_KEY_SPACE) { out = KeyCode::KEY_SPACE; return true; }
     if (code == LINUX_KEY_ESC || code == 158) { out = KeyCode::KEY_BACK; return true; }
+    if (code == LINUX_KEY_LEFTALT || code == LINUX_KEY_RIGHTALT) { out = KeyCode::KEY_ALT; return true; }
     return translateNavigation(code, out);
 }
 }
@@ -145,7 +150,10 @@ void InputDeviceEvdev::openDevices() {
 }
 
 bool InputDeviceEvdev::pollEvent(InputEvent& out_event, int timeout_ms) {
-    if (!has_devices_) return false;
+    if (!has_devices_) {
+        poll(nullptr, 0, timeout_ms);
+        return false;
+    }
     std::vector<struct pollfd> pfd(fds_.size());
     for (std::size_t i = 0; i < fds_.size(); ++i) {
         pfd[i].fd = fds_[i];

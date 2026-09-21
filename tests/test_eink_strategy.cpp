@@ -28,8 +28,9 @@ TEST(typing_refresh_updates_the_dirty_area_with_du) {
     DirtyTracker tracker;
     tracker.mark(BoundingBox(20, 30, 40, 50));
 
-    strategy.refresh(tracker);
+    RefreshResult result = strategy.refresh(tracker);
 
+    ASSERT_EQ(RefreshResult::PartialDu, result);
     ASSERT_EQ(1U, controller.partialUpdateCount());
     ASSERT_EQ(BoundingBox(20, 30, 40, 50), controller.callAt(0).area);
     ASSERT_FALSE(controller.callAt(0).is_full_refresh);
@@ -42,13 +43,15 @@ TEST(full_refresh_flashes_after_fifteen_keystrokes) {
     tracker.mark(BoundingBox(20, 30, 40, 50));
 
     for (int keystroke = 0; keystroke < 14; ++keystroke) {
-        strategy.refresh(tracker);
+        RefreshResult res = strategy.refresh(tracker);
+        ASSERT_EQ(RefreshResult::PartialDu, res);
     }
     ASSERT_EQ(14U, controller.partialUpdateCount());
     ASSERT_EQ(0U, controller.fullRefreshCount());
 
-    strategy.refresh(tracker);
+    RefreshResult res = strategy.refresh(tracker);
 
+    ASSERT_EQ(RefreshResult::FullGc16, res);
     ASSERT_EQ(1U, controller.fullRefreshCount());
     ASSERT_EQ(14U, controller.partialUpdateCount());
 }
@@ -59,8 +62,24 @@ TEST(full_refresh_flashes_immediately_when_screen_changes) {
     DirtyTracker tracker;
     tracker.mark(BoundingBox(1, 1, 2, 2));
 
-    strategy.refresh(tracker, true);
+    RefreshResult res = strategy.refresh(tracker, true);
 
+    ASSERT_EQ(RefreshResult::FullGc16, res);
     ASSERT_EQ(1U, controller.fullRefreshCount());
     ASSERT_EQ(0U, controller.partialUpdateCount());
+}
+
+TEST(full_refresh_force_full_refresh_resets_counter) {
+    MockEinkController controller;
+    FullRefresh strategy(controller);
+    DirtyTracker tracker;
+    tracker.mark(BoundingBox(10, 10, 20, 20));
+
+    strategy.refresh(tracker);
+    strategy.refresh(tracker);
+    ASSERT_EQ(2U, strategy.keystrokesSinceFullRefresh());
+
+    strategy.forceFullRefresh();
+    ASSERT_EQ(0U, strategy.keystrokesSinceFullRefresh());
+    ASSERT_EQ(1U, controller.fullRefreshCount());
 }
