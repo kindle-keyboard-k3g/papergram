@@ -18,33 +18,15 @@ constexpr std::uint16_t LINUX_KEY_RIGHT = KEY_RIGHT;
 constexpr std::uint16_t LINUX_KEY_PAGEUP = KEY_PAGEUP;
 constexpr std::uint16_t LINUX_KEY_PAGEDOWN = KEY_PAGEDOWN;
 constexpr std::uint16_t LINUX_KEY_ESC = KEY_ESC;
+constexpr std::uint16_t LINUX_KEY_POWER = 116;
+constexpr std::uint16_t LINUX_KEY_SLEEP = 142;
+constexpr std::uint16_t LINUX_KEY_SUSPEND = 205;
 
-constexpr std::uint16_t LINUX_KEY_A = KEY_A;
-constexpr std::uint16_t LINUX_KEY_B = KEY_B;
-constexpr std::uint16_t LINUX_KEY_C = KEY_C;
-constexpr std::uint16_t LINUX_KEY_D = KEY_D;
-constexpr std::uint16_t LINUX_KEY_E = KEY_E;
-constexpr std::uint16_t LINUX_KEY_F = KEY_F;
-constexpr std::uint16_t LINUX_KEY_G = KEY_G;
-constexpr std::uint16_t LINUX_KEY_H = KEY_H;
-constexpr std::uint16_t LINUX_KEY_I = KEY_I;
-constexpr std::uint16_t LINUX_KEY_J = KEY_J;
-constexpr std::uint16_t LINUX_KEY_K = KEY_K;
-constexpr std::uint16_t LINUX_KEY_L = KEY_L;
-constexpr std::uint16_t LINUX_KEY_M = KEY_M;
-constexpr std::uint16_t LINUX_KEY_N = KEY_N;
-constexpr std::uint16_t LINUX_KEY_O = KEY_O;
-constexpr std::uint16_t LINUX_KEY_P = KEY_P;
-constexpr std::uint16_t LINUX_KEY_Q = KEY_Q;
-constexpr std::uint16_t LINUX_KEY_R = KEY_R;
-constexpr std::uint16_t LINUX_KEY_S = KEY_S;
-constexpr std::uint16_t LINUX_KEY_T = KEY_T;
-constexpr std::uint16_t LINUX_KEY_U = KEY_U;
-constexpr std::uint16_t LINUX_KEY_V = KEY_V;
-constexpr std::uint16_t LINUX_KEY_W = KEY_W;
-constexpr std::uint16_t LINUX_KEY_X = KEY_X;
-constexpr std::uint16_t LINUX_KEY_Y = KEY_Y;
-constexpr std::uint16_t LINUX_KEY_Z = KEY_Z;
+constexpr std::uint16_t LETTER_CODES[26] = {
+    KEY_A, KEY_B, KEY_C, KEY_D, KEY_E, KEY_F, KEY_G, KEY_H, KEY_I, KEY_J,
+    KEY_K, KEY_L, KEY_M, KEY_N, KEY_O, KEY_P, KEY_Q, KEY_R, KEY_S, KEY_T,
+    KEY_U, KEY_V, KEY_W, KEY_X, KEY_Y, KEY_Z
+};
 }
 
 #undef KEY_0
@@ -87,18 +69,14 @@ constexpr std::uint16_t LINUX_KEY_Z = KEY_Z;
 #undef KEY_X
 #undef KEY_Y
 #undef KEY_Z
+#undef KEY_POWER
+#undef KEY_SLEEP
+#undef KEY_SUSPEND
 
 namespace {
 bool translateLetter(std::uint16_t code, KeyCode& out) {
-    static const std::uint16_t letter_codes[26] = {
-        LINUX_KEY_A, LINUX_KEY_B, LINUX_KEY_C, LINUX_KEY_D, LINUX_KEY_E, LINUX_KEY_F,
-        LINUX_KEY_G, LINUX_KEY_H, LINUX_KEY_I, LINUX_KEY_J, LINUX_KEY_K, LINUX_KEY_L,
-        LINUX_KEY_M, LINUX_KEY_N, LINUX_KEY_O, LINUX_KEY_P, LINUX_KEY_Q, LINUX_KEY_R,
-        LINUX_KEY_S, LINUX_KEY_T, LINUX_KEY_U, LINUX_KEY_V, LINUX_KEY_W, LINUX_KEY_X,
-        LINUX_KEY_Y, LINUX_KEY_Z
-    };
     for (std::size_t i = 0; i < 26; ++i) {
-        if (letter_codes[i] == code) {
+        if (LETTER_CODES[i] == code) {
             out = static_cast<KeyCode>(static_cast<int>(KeyCode::KEY_A) + i);
             return true;
         }
@@ -122,7 +100,16 @@ bool translateNavigation(std::uint16_t code, KeyCode& out) {
     return false;
 }
 
+bool translatePower(std::uint16_t code, KeyCode& out) {
+    if (code == LINUX_KEY_POWER || code == LINUX_KEY_SLEEP || code == LINUX_KEY_SUSPEND) {
+        out = KeyCode::KEY_POWER;
+        return true;
+    }
+    return false;
+}
+
 bool translateSpecial(std::uint16_t code, KeyCode& out) {
+    if (translatePower(code, out)) return true;
     if (code >= LINUX_KEY_1 && code <= LINUX_KEY_9) {
         out = static_cast<KeyCode>(static_cast<int>(KeyCode::KEY_1) + (code - LINUX_KEY_1));
         return true;

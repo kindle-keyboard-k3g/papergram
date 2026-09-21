@@ -51,7 +51,8 @@ enum class KeyCode : std::uint16_t {
     KEY_PAGEDOWN,
     KEY_BACK,
     KEY_MENU,
-    KEY_SYM
+    KEY_SYM,
+    KEY_POWER
 };
 
 struct InputEvent {

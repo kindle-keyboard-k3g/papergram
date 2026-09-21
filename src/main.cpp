@@ -14,6 +14,7 @@
 #include "ui/conversation_screen.h"
 #include "ui/login_screen.h"
 #include "ui/screen_navigator.h"
+#include "ui/screensaver_screen.h"
 
 #include <csignal>
 #include <iostream>
@@ -47,9 +48,43 @@ HardwareContext initializeHardware() {
         ctx.eink = std::make_unique<DummyEinkController>();
         ctx.input = std::make_unique<StdinInputDevice>();
         std::cout << "[Kindle Telegram] [Host Mode] Framebuffer is written to /tmp/kindle_fb.ppm" << std::endl;
-        std::cout << "[Kindle Telegram] [Host Mode] Controls: type keys, Enter: submit, Backspace: delete, Ctrl+D: exit" << std::endl;
+        std::cout << "[Kindle Telegram] [Host Mode] Controls: type keys, Enter: submit, Backspace: delete, ~: lock/unlock, Ctrl+D: exit" << std::endl;
         return ctx;
     }
+}
+
+void handlePowerToggle(ScreenNavigator& navigator) {
+    if (navigator.isLocked()) {
+        navigator.unlockScreen();
+        return;
+    }
+    navigator.lockScreen();
+}
+
+void renderFrame(ScreenNavigator& navigator, Canvas& canvas, IFrameBuffer& fb) {
+    navigator.render(canvas);
+    fb.copyFrom(canvas.backBuffer(), Canvas::BUFFER_SIZE);
+    fb.flush();
+}
+
+void processEvent(const InputEvent& ev, ScreenNavigator& navigator, Canvas& canvas,
+                  HardwareContext& hw, FullRefresh& full_refresh,
+                  TypingRefresh& typing_refresh, DirtyTracker& dirty_tracker) {
+    if (ev.code == KeyCode::KEY_POWER) {
+        if (!ev.pressed) return;
+        handlePowerToggle(navigator);
+        renderFrame(navigator, canvas, *hw.fb);
+        full_refresh.refresh(dirty_tracker, true);
+        std::cout << "[Kindle Telegram] Power toggled. Screen updated -> /tmp/kindle_fb.ppm" << std::endl;
+        return;
+    }
+    if (navigator.isLocked()) return;
+    navigator.handleInput(ev);
+    renderFrame(navigator, canvas, *hw.fb);
+    dirty_tracker.mark(BoundingBox(0, 0, 599, 799));
+    typing_refresh.refresh(dirty_tracker);
+    dirty_tracker.clear();
+    std::cout << "[Kindle Telegram] Screen updated -> /tmp/kindle_fb.ppm" << std::endl;
 }
 }
 
@@ -71,12 +106,12 @@ int main() {
     auto login = std::make_unique<LoginScreen>(client, navigator);
     auto chat_list = std::make_unique<ChatListScreen>(client, navigator);
     auto conv = std::make_unique<ConversationScreen>(client, navigator);
+    auto screensaver = std::make_unique<ScreensaverScreen>(&navigator);
     navigator.setScreens(std::move(login), std::move(chat_list), std::move(conv));
+    navigator.setScreensaver(std::move(screensaver));
 
     if (client.isAuthorized()) navigator.showChatList();
-    navigator.render(canvas);
-    hw.fb->copyFrom(canvas.backBuffer(), Canvas::BUFFER_SIZE);
-    hw.fb->flush();
+    renderFrame(navigator, canvas, *hw.fb);
     full_refresh.refresh(dirty_tracker, true);
 
     std::cout << "[Kindle Telegram] Ready. Initial frame saved to /tmp/kindle_fb.ppm" << std::endl;
@@ -84,14 +119,7 @@ int main() {
     while (g_running) {
         InputEvent ev;
         if (hw.input->pollEvent(ev, 100)) {
-            navigator.handleInput(ev);
-            navigator.render(canvas);
-            hw.fb->copyFrom(canvas.backBuffer(), Canvas::BUFFER_SIZE);
-            hw.fb->flush();
-            dirty_tracker.mark(BoundingBox(0, 0, 599, 799));
-            typing_refresh.refresh(dirty_tracker);
-            dirty_tracker.clear();
-            std::cout << "[Kindle Telegram] Screen updated -> /tmp/kindle_fb.ppm" << std::endl;
+            processEvent(ev, navigator, canvas, hw, full_refresh, typing_refresh, dirty_tracker);
         }
         if (hw.input->isClosed()) {
             std::cout << "[Kindle Telegram] Input stream closed. Exiting." << std::endl;

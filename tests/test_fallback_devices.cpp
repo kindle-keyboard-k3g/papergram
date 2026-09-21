@@ -25,3 +25,12 @@ TEST(stdin_input_device_initial_state_is_not_closed) {
     StdinInputDevice device;
     ASSERT_FALSE(device.isClosed());
 }
+
+TEST(stdin_input_device_maps_tilde_to_key_power) {
+    StdinInputDevice device;
+    InputEvent ev{};
+    bool mapped = device.mapCharToEvent('~', ev);
+    ASSERT_TRUE(mapped);
+    ASSERT_TRUE(ev.pressed);
+    ASSERT_TRUE(ev.code == KeyCode::KEY_POWER);
+}
