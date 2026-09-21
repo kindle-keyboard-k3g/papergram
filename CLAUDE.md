@@ -57,12 +57,22 @@ Input (/dev/input/event[0..2] or stdin) -> ScreenNavigator -> Active Screen -> C
 4. **UI Layer (`src/ui/`)**:
    - `ScreenNavigator`: State machine managing transitions between `LoginScreen`, `ChatListScreen`, and `ConversationScreen`.
    - `StatusHeader`: Clock, dynamic battery percentage, and network indicator (`[Wi-Fi]` / `[3G]`).
-   - `LoginScreen`: On-device phone number (`+1...`), verification code, and 2FA password entry.
+   - `LoginScreen`: On-device phone number (`+1...`), verification code, and 2FA password entry with keyboard hint toasts.
    - `ChatListScreen`: Dialog list with selection wrapping, unread badges, and page scrolling.
    - `ConversationScreen`: Message bubbles with 58-character word wrapping, page scrolling, and input bar.
+   - `ToastNotification`: Retro RPG-inspired double-bordered dialogue cards for contextual feedback and status prompts.
 
 5. **Device Deployment (`scripts/launch_kindle.sh`)**:
    - Halts the Kindle stock Java framework (`/etc/init.d/framework stop`) to free ~120 MB RAM, runs the client, and traps signals to restore the framework on exit.
+
+## UI/UX Design System: Modern Game Boy Aesthetics
+
+Papergram takes inspiration from the classic Nintendo Game Boy (DMG-01) 4-shade display, chunky dialogue boxes, and D-pad ergonomics, reimagined as a modern, distraction-free UI/UX for Kindle E-Ink Pearl displays. Full specification: [`docs/sot/ui_ux_design.md`](docs/sot/ui_ux_design.md).
+
+- **4-Tone Grayscale Palette**: Strictly constrain UI rendering to `GrayscaleColor::WHITE`, `LIGHT_GRAY`, `DARK_GRAY`, and `BLACK`. Avoid intermediate gradients or dithering that cause e-ink ghosting.
+- **Double-Border Dialogue Cards**: Notifications and popups use double-line framing (outer black border, 2px inner dark gray border, light gray fill) honoring classic handheld RPG dialogue boxes.
+- **D-Pad First Navigation**: D-pad navigation with wrap-around, Enter as "A" button, Back as "B" button, and side page rockers as L/R page jumping.
+- **Sunlight Readability**: Maximize black-on-white and black-on-light-gray contrast for high legibility on reflective E-Ink Pearl displays.
 
 ## Coding Standards & Invariants
 
