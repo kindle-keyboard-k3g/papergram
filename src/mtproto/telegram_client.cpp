@@ -75,11 +75,15 @@ bool decodeAuth(const std::vector<std::uint8_t>& data, SessionStorage& storage) 
 } // namespace
 
 TelegramClient::TelegramClient(INetworkTransport& transport, const std::string& session_path)
-    : transport_(&transport), storage_(session_path) {}
+    : transport_(&transport), state_(session_path) {}
 
 bool TelegramClient::isAuthorized() const {
     SessionData session;
-    return storage_.load(session) && !session.auth_key.empty();
+    return state_.storage.load(session) && !session.auth_key.empty();
+}
+
+bool TelegramClient::isPasswordNeeded() const {
+    return state_.password_needed;
 }
 
 bool TelegramClient::requestAuthCode(const PhoneNumber& phone) {
@@ -102,7 +106,18 @@ bool TelegramClient::signIn(const PhoneNumber& phone, const AuthCode& code) {
     writer.write_string(code.value());
     std::vector<std::uint8_t> response;
     if (!executeRpc(writer.data(), response)) return false;
-    return decodeAuth(response, storage_);
+    if (response.size() >= 4) {
+        TlReader reader(response);
+        if (reader.read_int32() == 0x300) {
+            state_.password_needed = true;
+            return false;
+        }
+    }
+    bool ok = decodeAuth(response, state_.storage);
+    if (ok) {
+        state_.password_needed = false;
+    }
+    return ok;
 }
 
 bool TelegramClient::checkPassword(const CloudPassword& password) {
@@ -112,7 +127,11 @@ bool TelegramClient::checkPassword(const CloudPassword& password) {
     writer.write_string(password.value());
     std::vector<std::uint8_t> response;
     if (!executeRpc(writer.data(), response)) return false;
-    return decodeAuth(response, storage_);
+    bool ok = decodeAuth(response, state_.storage);
+    if (ok) {
+        state_.password_needed = false;
+    }
+    return ok;
 }
 
 bool TelegramClient::getDialogs(ChatList& out_chats) {
@@ -143,7 +162,8 @@ bool TelegramClient::sendMessage(const ChatId& chat_id, const MessageText& text)
 }
 
 void TelegramClient::logOut() {
-    storage_.remove();
+    state_.storage.remove();
+    state_.password_needed = false;
 }
 
 bool TelegramClient::executeRpc(const std::vector<std::uint8_t>& request,

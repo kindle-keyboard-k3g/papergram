@@ -17,6 +17,7 @@ public:
                    const std::string& session_path = "/mnt/us/telegram/session.dat");
 
     bool isAuthorized() const;
+    bool isPasswordNeeded() const;
     bool requestAuthCode(const PhoneNumber& phone);
     bool sendCode(const PhoneNumber& phone);
     bool signIn(const PhoneNumber& phone, const AuthCode& code);
@@ -27,8 +28,14 @@ public:
     void logOut();
 
 private:
+    struct ClientState {
+        SessionStorage storage;
+        bool password_needed = false;
+        explicit ClientState(const std::string& path) : storage(path) {}
+    };
+
     INetworkTransport* transport_;
-    SessionStorage storage_;
+    ClientState state_;
 
     bool executeRpc(const std::vector<std::uint8_t>& request,
                     std::vector<std::uint8_t>& response) const;
