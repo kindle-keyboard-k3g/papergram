@@ -1,0 +1,627 @@
+88978a5 feat(ui): implement PopupLayout and fixed-capacity PopupCollection
+ src/ui/popup_collection.cpp     | 186 ++++++++++++++++++++++++++++++++++++++++
+ src/ui/popup_collection.h       |  59 +++++++++++++
+ src/ui/popup_entry.cpp          |  54 ++++++++++++
+ src/ui/popup_entry.h            |  45 ++++++++++
+ src/ui/popup_layout.cpp         |  74 ++++++++++++++++
+ src/ui/popup_layout.h           |  35 ++++++++
+ tests/test_popup_collection.cpp | 121 ++++++++++++++++++++++++++
+ 7 files changed, 574 insertions(+)
+
+--- FULL DIFF ---
+diff --git a/src/ui/popup_collection.cpp b/src/ui/popup_collection.cpp
+new file mode 100644
+index 0000000..40f661e
+--- /dev/null
++++ b/src/ui/popup_collection.cpp
+@@ -0,0 +1,186 @@
++#include "popup_collection.h"
++
++#include "../graphics/canvas.h"
++
++#include <algorithm>
++#include <utility>
++
++namespace ui {
++
++bool PopupCollection::push(const PopupEntry& entry, PopupMode mode,
++                           PopupTimestamp now) {
++    if (mode == PopupMode::VISUAL_STACK) {
++        return pushVisualStack(entry, now);
++    }
++    return pushSequentialQueue(entry, now);
++}
++
++bool PopupCollection::update(PopupTimestamp now, PopupMode mode) {
++    if (mode == PopupMode::VISUAL_STACK) {
++        return updateVisualStack(now);
++    }
++    return updateSequentialQueue(now);
++}
++
++std::size_t PopupCollection::visibleCount(PopupMode mode) const {
++    if (mode == PopupMode::SEQUENTIAL_QUEUE) {
++        return isActiveAt(0U) ? 1U : 0U;
++    }
++    std::size_t visible = 0U;
++    for (std::size_t index = 0U; index < count_; ++index) {
++        visible += isActiveAt(index) ? 1U : 0U;
++    }
++    return visible;
++}
++
++std::size_t PopupCollection::size() const {
++    return count_;
++}
++
++std::size_t PopupCollection::pendingCount() const {
++    return count_ > 0U ? count_ - 1U : 0U;
++}
++
++std::size_t PopupCollection::pendingCount(PopupMode mode) const {
++    if (mode == PopupMode::VISUAL_STACK) {
++        return 0U;
++    }
++    return pendingCount();
++}
++
++void PopupCollection::render(Canvas& canvas, const PopupLayout& layout,
++                             PopupPosition position, PopupMode mode) {
++    if (mode == PopupMode::VISUAL_STACK) {
++        renderVisualStack(canvas, layout, position);
++        return;
++    }
++    renderSequentialQueue(canvas, layout, position);
++}
++
++bool PopupCollection::pushVisualStack(const PopupEntry& entry,
++                                       PopupTimestamp now) {
++    shiftForNewest();
++    entries_[0U].emplace(entry);
++    entries_[0U]->activate(now);
++    return true;
++}
++
++bool PopupCollection::pushSequentialQueue(const PopupEntry& entry,
++                                           PopupTimestamp now) {
++    if (count_ == CAPACITY) {
++        return false;
++    }
++    entries_[count_].emplace(entry);
++    ++count_;
++    if (count_ == 1U) {
++        activateFirst(now);
++    }
++    return true;
++}
++
++bool PopupCollection::updateVisualStack(PopupTimestamp now) {
++    return removeExpiredFrom(0U, now);
++}
++
++bool PopupCollection::removeExpiredFrom(std::size_t index,
++                                        PopupTimestamp now) {
++    if (index >= count_) {
++        return false;
++    }
++    if (!isExpiredAt(index, now)) {
++        return removeExpiredFrom(index + 1U, now);
++    }
++    removeAt(index);
++    removeExpiredFrom(index, now);
++    return true;
++}
++
++bool PopupCollection::updateSequentialQueue(PopupTimestamp now) {
++    if (count_ == 0U || !isActiveAt(0U) || !isExpiredAt(0U, now)) {
++        return false;
++    }
++    removeAt(0U);
++    if (count_ == 0U) {
++        return true;
++    }
++    activateFirst(now);
++    return true;
++}
++
++bool PopupCollection::isExpiredAt(std::size_t index,
++                                  PopupTimestamp now) const {
++    return isActiveAt(index) && entries_[index]->isExpired(now);
++}
++
++bool PopupCollection::isActiveAt(std::size_t index) const {
++    return index < count_ && entries_[index].has_value() &&
++           entries_[index]->isActive();
++}
++
++void PopupCollection::activateFirst(PopupTimestamp now) {
++    if (count_ == 0U || !entries_[0U].has_value()) {
++        return;
++    }
++    entries_[0U]->activate(now);
++}
++
++void PopupCollection::removeAt(std::size_t index) {
++    if (index >= count_) {
++        return;
++    }
++    for (std::size_t position = index; position + 1U < count_; ++position) {
++        entries_[position] = std::move(entries_[position + 1U]);
++    }
++    entries_[count_ - 1U].reset();
++    --count_;
++}
++
++void PopupCollection::shiftForNewest() {
++    const std::size_t last = std::min(count_, CAPACITY - 1U);
++    for (std::size_t position = last; position > 0U; --position) {
++        entries_[position] = std::move(entries_[position - 1U]);
++    }
++    if (count_ < CAPACITY) {
++        ++count_;
++    }
++}
++
++void PopupCollection::renderVisualStack(Canvas& canvas,
++                                         const PopupLayout& layout,
++                                         PopupPosition position) {
++    std::size_t visible_index = 0U;
++    for (std::size_t index = 0U; index < count_; ++index) {
++        visible_index += renderActiveEntry(index, canvas, layout, position,
++                                           visible_index) ? 1U : 0U;
++    }
++}
++
++void PopupCollection::renderSequentialQueue(Canvas& canvas,
++                                             const PopupLayout& layout,
++                                             PopupPosition position) {
++    if (!isActiveAt(0U)) {
++        return;
++    }
++    renderEntryAt(0U, canvas, layout, position, 0U);
++}
++
++bool PopupCollection::renderActiveEntry(std::size_t index, Canvas& canvas,
++                                         const PopupLayout& layout,
++                                         PopupPosition position,
++                                         std::size_t visible_index) {
++    if (!isActiveAt(index)) {
++        return false;
++    }
++    renderEntryAt(index, canvas, layout, position, visible_index);
++    return true;
++}
++
++void PopupCollection::renderEntryAt(std::size_t index, Canvas& canvas,
++                                    const PopupLayout& layout,
++                                    PopupPosition position,
++                                    std::size_t visible_index) {
++    const BoundingBox bounds = layout.calculateBounds(visible_index, position);
++    entries_[index]->render(canvas, bounds);
++}
++
++} // namespace ui
+diff --git a/src/ui/popup_collection.h b/src/ui/popup_collection.h
+new file mode 100644
+index 0000000..c454dc4
+--- /dev/null
++++ b/src/ui/popup_collection.h
+@@ -0,0 +1,59 @@
++#ifndef KINDLE_UI_POPUP_COLLECTION_H
++#define KINDLE_UI_POPUP_COLLECTION_H
++
++#include "popup_entry.h"
++#include "popup_layout.h"
++#include "popup_types.h"
++
++#include <array>
++#include <cstddef>
++#include <optional>
++
++class Canvas;
++
++namespace ui {
++
++class PopupCollection {
++public:
++    static constexpr std::size_t CAPACITY = 4U;
++
++    bool push(const PopupEntry& entry, PopupMode mode, PopupTimestamp now);
++    bool update(PopupTimestamp now, PopupMode mode);
++    std::size_t visibleCount(PopupMode mode) const;
++    std::size_t size() const;
++    std::size_t pendingCount() const;
++    std::size_t pendingCount(PopupMode mode) const;
++    void render(Canvas& canvas, const PopupLayout& layout,
++                PopupPosition position, PopupMode mode);
++
++private:
++    using EntrySlots = std::array<std::optional<PopupEntry>, CAPACITY>;
++
++    EntrySlots entries_;
++    std::size_t count_{0U};
++
++    bool pushVisualStack(const PopupEntry& entry, PopupTimestamp now);
++    bool pushSequentialQueue(const PopupEntry& entry, PopupTimestamp now);
++    bool updateVisualStack(PopupTimestamp now);
++    bool updateSequentialQueue(PopupTimestamp now);
++    bool removeExpiredFrom(std::size_t index, PopupTimestamp now);
++    bool isExpiredAt(std::size_t index, PopupTimestamp now) const;
++    bool isActiveAt(std::size_t index) const;
++    void activateFirst(PopupTimestamp now);
++    void removeAt(std::size_t index);
++    void shiftForNewest();
++    void renderVisualStack(Canvas& canvas, const PopupLayout& layout,
++                           PopupPosition position);
++    void renderSequentialQueue(Canvas& canvas, const PopupLayout& layout,
++                               PopupPosition position);
++    bool renderActiveEntry(std::size_t index, Canvas& canvas,
++                           const PopupLayout& layout, PopupPosition position,
++                           std::size_t visible_index);
++    void renderEntryAt(std::size_t index, Canvas& canvas,
++                       const PopupLayout& layout, PopupPosition position,
++                       std::size_t visible_index);
++};
++
++} // namespace ui
++
++#endif
+diff --git a/src/ui/popup_entry.cpp b/src/ui/popup_entry.cpp
+new file mode 100644
+index 0000000..30dfa23
+--- /dev/null
++++ b/src/ui/popup_entry.cpp
+@@ -0,0 +1,54 @@
++#include "popup_entry.h"
++
++namespace ui {
++
++PopupEntry::PopupEntry(const ToastNotification& card,
++                       const PopupDuration& duration)
++    : PopupEntry(card, PopupTimestamp(std::chrono::milliseconds(0)), duration,
++                 false) {}
++
++PopupEntry::PopupEntry(const ToastNotification& card,
++                       const PopupTimestamp& created_at,
++                       const PopupDuration& duration, bool active)
++    : data_{card, created_at, duration, active} {}
++
++PopupEntry::PopupEntry(const BoundingBox& bounds, const std::string& title,
++                       const std::vector<std::string>& lines,
++                       const PopupDuration& duration)
++    : PopupEntry(ToastNotification(bounds, title, lines), duration) {}
++
++bool PopupEntry::isExpired(PopupTimestamp now) const {
++    return now >= data_.created_at + data_.duration.toMillis();
++}
++
++void PopupEntry::activate(PopupTimestamp now) {
++    data_.created_at = now;
++    data_.active = true;
++}
++
++bool PopupEntry::isActive() const {
++    return data_.active;
++}
++
++const ToastNotification& PopupEntry::card() const {
++    return data_.card;
++}
++
++ToastNotification& PopupEntry::card() {
++    return data_.card;
++}
++
++const PopupTimestamp& PopupEntry::createdAt() const {
++    return data_.created_at;
++}
++
++const PopupDuration& PopupEntry::duration() const {
++    return data_.duration;
++}
++
++void PopupEntry::render(Canvas& canvas, const BoundingBox& bounds) {
++    data_.card.setBounds(bounds);
++    data_.card.render(canvas);
++}
++
++} // namespace ui
+diff --git a/src/ui/popup_entry.h b/src/ui/popup_entry.h
+new file mode 100644
+index 0000000..795b69d
+--- /dev/null
++++ b/src/ui/popup_entry.h
+@@ -0,0 +1,45 @@
++#ifndef KINDLE_UI_POPUP_ENTRY_H
++#define KINDLE_UI_POPUP_ENTRY_H
++
++#include "popup_types.h"
++#include "toast_notification.h"
++
++#include <chrono>
++#include <string>
++#include <vector>
++
++namespace ui {
++
++class PopupEntry {
++public:
++    PopupEntry(const ToastNotification& card, const PopupDuration& duration);
++    PopupEntry(const ToastNotification& card, const PopupTimestamp& created_at,
++               const PopupDuration& duration, bool active = false);
++    PopupEntry(const BoundingBox& bounds, const std::string& title,
++               const std::vector<std::string>& lines,
++               const PopupDuration& duration);
++
++    bool isExpired(PopupTimestamp now) const;
++    void activate(PopupTimestamp now);
++    bool isActive() const;
++    const ToastNotification& card() const;
++    ToastNotification& card();
++    const PopupTimestamp& createdAt() const;
++    const PopupDuration& duration() const;
++
++    void render(Canvas& canvas, const BoundingBox& bounds);
++
++private:
++    struct PopupData {
++        ToastNotification card;
++        PopupTimestamp created_at;
++        PopupDuration duration;
++        bool active;
++    };
++
++    PopupData data_;
++};
++
++} // namespace ui
++
++#endif
+diff --git a/src/ui/popup_layout.cpp b/src/ui/popup_layout.cpp
+new file mode 100644
+index 0000000..f2acc39
+--- /dev/null
++++ b/src/ui/popup_layout.cpp
+@@ -0,0 +1,74 @@
++#include "popup_layout.h"
++
++#include <algorithm>
++#include <limits>
++
++namespace ui {
++
++BoundingBox PopupLayout::calculateBounds(std::size_t index,
++                                         PopupPosition position) const {
++    const int left = clampHorizontal(LEFT_MARGIN);
++    const int right = clampHorizontal(RIGHT_MARGIN);
++    const int top = clampVertical(topCoordinate(index, position));
++    const int bottom = clampVertical(bottomCoordinate(index, position));
++    return BoundingBox(left, top, right, bottom);
++}
++
++BoundingBox PopupLayout::calculateDamageArea(std::size_t count,
++                                             PopupPosition position) const {
++    if (count == 0U) {
++        return BoundingBox(0, 0, SCREEN_WIDTH - 1, SCREEN_HEIGHT - 1);
++    }
++    const BoundingBox newest = calculateBounds(0U, position);
++    const BoundingBox oldest = calculateBounds(count - 1U, position);
++    const int top = std::min(newest.top(), oldest.top());
++    const int bottom = std::max(newest.bottom(), oldest.bottom());
++    return BoundingBox(newest.left(), top, newest.right(), bottom);
++}
++
++int PopupLayout::clampHorizontal(int coordinate) {
++    return std::max(0, std::min(SCREEN_WIDTH - 1, coordinate));
++}
++
++int PopupLayout::clampVertical(long long coordinate) {
++    const long long maximum = static_cast<long long>(SCREEN_HEIGHT - 1);
++    return static_cast<int>(std::max(0LL, std::min(maximum, coordinate)));
++}
++
++long long PopupLayout::stackOffset(std::size_t index) {
++    const long long maximum = std::numeric_limits<long long>::max();
++    const std::size_t safe_index = static_cast<std::size_t>(maximum) /
++                                   static_cast<std::size_t>(STACK_OFFSET);
++    if (index > safe_index) {
++        return maximum;
++    }
++    return static_cast<long long>(index) * STACK_OFFSET;
++}
++
++long long PopupLayout::topCoordinate(std::size_t index,
++                                     PopupPosition position) {
++    const long long offset = stackOffset(index);
++    if (position == PopupPosition::TOP) {
++        const long long maximum = std::numeric_limits<long long>::max();
++        if (offset > maximum - TOP_ANCHOR) {
++            return maximum;
++        }
++        return TOP_ANCHOR + offset;
++    }
++    return static_cast<long long>(BOTTOM_ANCHOR - CARD_HEIGHT) - offset;
++}
++
++long long PopupLayout::bottomCoordinate(std::size_t index,
++                                        PopupPosition position) {
++    const long long offset = stackOffset(index);
++    if (position == PopupPosition::TOP) {
++        const long long maximum = std::numeric_limits<long long>::max();
++        if (offset > maximum - TOP_ANCHOR - CARD_HEIGHT) {
++            return maximum;
++        }
++        return TOP_ANCHOR + CARD_HEIGHT + offset;
++    }
++    return static_cast<long long>(BOTTOM_ANCHOR) - offset;
++}
++
++} // namespace ui
+diff --git a/src/ui/popup_layout.h b/src/ui/popup_layout.h
+new file mode 100644
+index 0000000..638d13a
+--- /dev/null
++++ b/src/ui/popup_layout.h
+@@ -0,0 +1,35 @@
++#ifndef KINDLE_UI_POPUP_LAYOUT_H
++#define KINDLE_UI_POPUP_LAYOUT_H
++
++#include "popup_types.h"
++#include "../domain/value_objects.h"
++
++#include <cstddef>
++
++namespace ui {
++
++class PopupLayout {
++public:
++    static constexpr int SCREEN_WIDTH = 600;
++    static constexpr int SCREEN_HEIGHT = 800;
++    static constexpr int LEFT_MARGIN = 30;
++    static constexpr int RIGHT_MARGIN = 570;
++    static constexpr int CARD_HEIGHT = 68;
++    static constexpr int STACK_OFFSET = 48;
++    static constexpr int TOP_ANCHOR = 36;
++    static constexpr int BOTTOM_ANCHOR = 760;
++
++    BoundingBox calculateBounds(std::size_t index, PopupPosition position) const;
++    BoundingBox calculateDamageArea(std::size_t count, PopupPosition position) const;
++
++private:
++    static int clampHorizontal(int coordinate);
++    static int clampVertical(long long coordinate);
++    static long long stackOffset(std::size_t index);
++    static long long topCoordinate(std::size_t index, PopupPosition position);
++    static long long bottomCoordinate(std::size_t index, PopupPosition position);
++};
++
++} // namespace ui
++
++#endif
+diff --git a/tests/test_popup_collection.cpp b/tests/test_popup_collection.cpp
+new file mode 100644
+index 0000000..681db15
+--- /dev/null
++++ b/tests/test_popup_collection.cpp
+@@ -0,0 +1,121 @@
++#include "test_framework.h"
++
++#include "../src/graphics/canvas.h"
++#include "../src/ui/popup_collection.h"
++#include "../src/ui/popup_entry.h"
++#include "../src/ui/popup_layout.h"
++#include "../src/ui/popup_types.h"
++#include "../src/ui/toast_notification.h"
++
++#include <chrono>
++#include <string>
++#include <vector>
++
++namespace {
++
++ui::PopupTimestamp timestamp(int milliseconds) {
++    return ui::PopupTimestamp(std::chrono::milliseconds(milliseconds));
++}
++
++ui::PopupEntry entry(const std::string& title,
++                     const std::string& line,
++                     int duration = 1000) {
++    const BoundingBox bounds(30, 0, 570, 67);
++    const std::vector<std::string> lines = {line};
++    const ui::ToastNotification card(bounds, title, lines);
++    return ui::PopupEntry(card, ui::PopupDuration(std::chrono::milliseconds(duration)));
++}
++
++} // namespace
++
++TEST(popup_layout_calculates_bottom_and_top_bounds) {
++    const ui::PopupLayout layout;
++
++    ASSERT_EQ(BoundingBox(30, 692, 570, 760),
++              layout.calculateBounds(0U, PopupPosition::BOTTOM));
++    ASSERT_EQ(BoundingBox(30, 644, 570, 712),
++              layout.calculateBounds(1U, PopupPosition::BOTTOM));
++    ASSERT_EQ(BoundingBox(30, 36, 570, 104),
++              layout.calculateBounds(0U, PopupPosition::TOP));
++    ASSERT_EQ(BoundingBox(30, 84, 570, 152),
++              layout.calculateBounds(1U, PopupPosition::TOP));
++}
++
++TEST(popup_layout_clamps_bounds_and_damage_area) {
++    const ui::PopupLayout layout;
++
++    ASSERT_EQ(BoundingBox(30, 0, 570, 40),
++              layout.calculateBounds(15U, PopupPosition::BOTTOM));
++    ASSERT_EQ(BoundingBox(30, 548, 570, 760),
++              layout.calculateDamageArea(4U, PopupPosition::BOTTOM));
++    ASSERT_EQ(BoundingBox(30, 36, 570, 248),
++              layout.calculateDamageArea(4U, PopupPosition::TOP));
++}
++
++TEST(popup_entry_activates_and_expires_at_duration_boundary) {
++    ui::PopupEntry popup = entry("Title", "Message", 1000);
++    ASSERT_FALSE(popup.isActive());
++
++    popup.activate(timestamp(500));
++
++    ASSERT_TRUE(popup.isActive());
++    ASSERT_FALSE(popup.isExpired(timestamp(1499)));
++    ASSERT_TRUE(popup.isExpired(timestamp(1500)));
++}
++
++TEST(popup_collection_visual_stack_keeps_newest_four_items) {
++    ui::PopupCollection collection;
++    const ui::PopupTimestamp now = timestamp(0);
++
++    ASSERT_TRUE(collection.push(entry("One", "one"), PopupMode::VISUAL_STACK, now));
++    ASSERT_TRUE(collection.push(entry("Two", "two"), PopupMode::VISUAL_STACK, now));
++    ASSERT_TRUE(collection.push(entry("Three", "three"), PopupMode::VISUAL_STACK, now));
++    ASSERT_TRUE(collection.push(entry("Four", "four"), PopupMode::VISUAL_STACK, now));
++    ASSERT_TRUE(collection.push(entry("Five", "five"), PopupMode::VISUAL_STACK, now));
++
++    ASSERT_EQ(static_cast<std::size_t>(4), collection.visibleCount(PopupMode::VISUAL_STACK));
++    ASSERT_EQ(static_cast<std::size_t>(4), collection.size());
++
++    Canvas canvas;
++    canvas.clear(GrayscaleColor::WHITE);
++    collection.render(canvas, ui::PopupLayout(), PopupPosition::BOTTOM,
++                      PopupMode::VISUAL_STACK);
++    ASSERT_TRUE(canvas.hasNonWhitePixel(BoundingBox(30, 692, 570, 760)));
++    ASSERT_TRUE(canvas.hasNonWhitePixel(BoundingBox(30, 548, 570, 616)));
++}
++
++TEST(popup_collection_sequential_queue_promotes_waiting_item) {
++    ui::PopupCollection collection;
++    const ui::PopupTimestamp start = timestamp(100);
++
++    ASSERT_TRUE(collection.push(entry("First", "first", 1000),
++                                PopupMode::SEQUENTIAL_QUEUE, start));
++    ASSERT_TRUE(collection.push(entry("Second", "second", 1000),
++                                PopupMode::SEQUENTIAL_QUEUE, start));
++
++    ASSERT_EQ(static_cast<std::size_t>(1), collection.visibleCount(PopupMode::SEQUENTIAL_QUEUE));
++    ASSERT_EQ(static_cast<std::size_t>(2), collection.size());
++    ASSERT_FALSE(collection.update(timestamp(1099), PopupMode::SEQUENTIAL_QUEUE));
++    ASSERT_TRUE(collection.update(timestamp(1100), PopupMode::SEQUENTIAL_QUEUE));
++    ASSERT_EQ(static_cast<std::size_t>(1), collection.visibleCount(PopupMode::SEQUENTIAL_QUEUE));
++    ASSERT_EQ(static_cast<std::size_t>(1), collection.size());
++
++    Canvas canvas;
++    canvas.clear(GrayscaleColor::WHITE);
++    collection.render(canvas, ui::PopupLayout(), PopupPosition::TOP,
++                      PopupMode::SEQUENTIAL_QUEUE);
++    ASSERT_TRUE(canvas.hasNonWhitePixel(BoundingBox(30, 36, 570, 104)));
++}
++
++TEST(popup_collection_sequential_queue_rejects_when_full) {
++    ui::PopupCollection collection;
++    const ui::PopupTimestamp now = timestamp(0);
++
++    for (int index = 0; index < 4; ++index) {
++        ASSERT_TRUE(collection.push(entry("Title", "Line"),
++                                   PopupMode::SEQUENTIAL_QUEUE, now));
++    }
++    ASSERT_FALSE(collection.push(entry("Overflow", "Line"),
++                                 PopupMode::SEQUENTIAL_QUEUE, now));
++    ASSERT_EQ(static_cast<std::size_t>(4), collection.size());
++}

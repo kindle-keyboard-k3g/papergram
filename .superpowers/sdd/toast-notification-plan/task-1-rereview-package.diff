@@ -1,0 +1,198 @@
+4b66ac9 fix(ui): clip toast notification text safely
+ src/ui/toast_notification.cpp     | 48 ++++++++++++++++++++++++++++++++++-----
+ src/ui/toast_notification.h       |  8 +++++++
+ tests/test_toast_notification.cpp | 40 ++++++++++++++++++++++++++++++++
+ 3 files changed, 90 insertions(+), 6 deletions(-)
+
+--- FIX DIFF ---
+diff --git a/src/ui/toast_notification.cpp b/src/ui/toast_notification.cpp
+index 0cddad7..d14e894 100644
+--- a/src/ui/toast_notification.cpp
++++ b/src/ui/toast_notification.cpp
+@@ -1,12 +1,16 @@
+ #include "toast_notification.h"
+ 
++#include "../graphics/bitmap_font.h"
++
++#include <algorithm>
++
+ namespace ui {
+ 
+ ToastNotification::ToastNotification(const BoundingBox& bounds,
+                                      const std::string& title,
+                                      const std::vector<std::string>& lines)
+     : data_{bounds, title, lines} {}
+ 
+ void ToastNotification::render(Canvas& canvas) const {
+     renderBackground(canvas);
+     renderBorder(canvas);
+@@ -24,30 +28,62 @@ void ToastNotification::renderBackground(Canvas& canvas) const {
+ 
+ void ToastNotification::renderBorder(Canvas& canvas) const {
+     canvas.drawRect(data_.bounds, GrayscaleColor::BLACK);
+     if (data_.bounds.width() <= 4 || data_.bounds.height() <= 4) return;
+     const BoundingBox inner(data_.bounds.left() + 2, data_.bounds.top() + 2,
+                             data_.bounds.right() - 2, data_.bounds.bottom() - 2);
+     canvas.drawRect(inner, GrayscaleColor::DARK_GRAY);
+ }
+ 
+ void ToastNotification::renderTitle(Canvas& canvas) const {
+-    const ScreenCoordinate origin(data_.bounds.left() + 12,
+-                                  data_.bounds.top() + 8);
+-    canvas.blitText(origin, data_.title, GrayscaleColor::BLACK);
++    const int x = data_.bounds.left() + 12;
++    const int y = data_.bounds.top() + 8;
++    renderText(canvas, clippedText(data_.bounds, data_.title, x), x, y);
+ }
+ 
+ void ToastNotification::renderLines(Canvas& canvas) const {
+     int y = data_.bounds.top() + 30;
+     for (std::size_t index = 0U;
+          index < data_.lines.size() && fitsLine(data_.bounds, y); ++index) {
+-        canvas.blitText(ScreenCoordinate(data_.bounds.left() + 12, y),
+-                        data_.lines[index], GrayscaleColor::BLACK);
++        const int x = data_.bounds.left() + 12;
++        const std::string text = clippedText(data_.bounds, data_.lines[index], x);
++        renderText(canvas, text, x, y);
+         y += 18;
+     }
+ }
+ 
++void ToastNotification::renderText(Canvas& canvas, const std::string& text,
++                                   int x, int y) const {
++    if (!canRenderText(data_.bounds, text, x, y)) return;
++    canvas.blitText(ScreenCoordinate(x, y), text, GrayscaleColor::BLACK);
++}
++
++std::string ToastNotification::clippedText(const BoundingBox& bounds,
++                                           const std::string& text, int x) {
++    return text.substr(0U, maximumCharacters(bounds, x));
++}
++
++std::size_t ToastNotification::maximumCharacters(const BoundingBox& bounds,
++                                                 int x) {
++    const int right = std::min(bounds.right(), static_cast<int>(Canvas::WIDTH) - 1);
++    if (x > right) return 0U;
++    return static_cast<std::size_t>(right - x + 1) /
++           BitmapFont::CHARACTER_WIDTH;
++}
++
++bool ToastNotification::canRenderText(const BoundingBox& bounds,
++                                      const std::string& text, int x, int y) {
++    if (text.empty()) return false;
++    const int bottom = std::min(bounds.bottom(), static_cast<int>(Canvas::HEIGHT) - 1);
++    const int right = std::min(bounds.right(), static_cast<int>(Canvas::WIDTH) - 1);
++    const int last_row = y + static_cast<int>(BitmapFont::CHARACTER_HEIGHT) - 1;
++    return x >= bounds.left() && x <= right && y >= bounds.top() &&
++           last_row <= bottom && text.size() <= maximumCharacters(bounds, x);
++}
++
+ bool ToastNotification::fitsLine(const BoundingBox& bounds, int y) {
+-    return y >= bounds.top() && y + 15 <= bounds.bottom();
++    const int bottom = std::min(bounds.bottom(), static_cast<int>(Canvas::HEIGHT) - 1);
++    const int last_row = y + static_cast<int>(BitmapFont::CHARACTER_HEIGHT) - 1;
++    return y >= bounds.top() && last_row <= bottom;
+ }
+ 
+ } // namespace ui
+diff --git a/src/ui/toast_notification.h b/src/ui/toast_notification.h
+index 579adff..c1042fa 100644
+--- a/src/ui/toast_notification.h
++++ b/src/ui/toast_notification.h
+@@ -1,16 +1,17 @@
+ #ifndef KINDLE_UI_TOAST_NOTIFICATION_H
+ #define KINDLE_UI_TOAST_NOTIFICATION_H
+ 
+ #include "../graphics/canvas.h"
+ #include "../domain/value_objects.h"
+ 
++#include <cstddef>
+ #include <string>
+ #include <vector>
+ 
+ namespace ui {
+ 
+ class ToastNotification {
+ public:
+     ToastNotification(const BoundingBox& bounds, const std::string& title,
+                       const std::vector<std::string>& lines);
+     void render(Canvas& canvas) const;
+@@ -22,16 +23,23 @@ private:
+         std::string title;
+         std::vector<std::string> lines;
+     };
+ 
+     ToastData data_;
+ 
+     void renderBackground(Canvas& canvas) const;
+     void renderBorder(Canvas& canvas) const;
+     void renderTitle(Canvas& canvas) const;
+     void renderLines(Canvas& canvas) const;
++    void renderText(Canvas& canvas, const std::string& text, int x,
++                    int y) const;
++    static std::string clippedText(const BoundingBox& bounds,
++                                   const std::string& text, int x);
++    static std::size_t maximumCharacters(const BoundingBox& bounds, int x);
++    static bool canRenderText(const BoundingBox& bounds,
++                              const std::string& text, int x, int y);
+     static bool fitsLine(const BoundingBox& bounds, int y);
+ };
+ 
+ } // namespace ui
+ 
+ #endif
+diff --git a/tests/test_toast_notification.cpp b/tests/test_toast_notification.cpp
+index 77e84b5..97ff123 100644
+--- a/tests/test_toast_notification.cpp
++++ b/tests/test_toast_notification.cpp
+@@ -20,10 +20,50 @@ TEST(toast_notification_keeps_bounds_and_renders_card_content) {
+     ASSERT_TRUE(canvas.hasNonWhitePixel(BoundingBox(112, 108, 180, 123)));
+     ASSERT_TRUE(canvas.hasNonWhitePixel(BoundingBox(112, 130, 220, 145)));
+     ASSERT_TRUE(canvas.hasNonWhitePixel(BoundingBox(112, 148, 220, 163)));
+     ASSERT_EQ(GrayscaleColor::BLACK,
+               canvas.pixelAt(ScreenCoordinate(114, 109)));
+     ASSERT_EQ(GrayscaleColor::BLACK,
+               canvas.pixelAt(ScreenCoordinate(114, 131)));
+     ASSERT_EQ(GrayscaleColor::BLACK,
+               canvas.pixelAt(ScreenCoordinate(115, 149)));
+ }
++
++TEST(toast_notification_clips_long_text_to_card_bounds) {
++    const BoundingBox bounds(100, 100, 220, 180);
++    const std::string long_text(80U, 'X');
++    const std::vector<std::string> lines = {long_text, long_text};
++    ui::ToastNotification notification(bounds, long_text, lines);
++    Canvas canvas;
++    canvas.clear(GrayscaleColor::WHITE);
++
++    notification.render(canvas);
++
++    ASSERT_TRUE(canvas.hasNonWhitePixel(BoundingBox(100, 100, 220, 180)));
++    ASSERT_FALSE(canvas.hasNonWhitePixel(BoundingBox(221, 100, 599, 180)));
++    ASSERT_FALSE(canvas.hasNonWhitePixel(BoundingBox(100, 181, 220, 799)));
++}
++
++TEST(toast_notification_handles_small_bounds_without_overflow) {
++    const BoundingBox bounds(0, 0, 16, 18);
++    const std::vector<std::string> lines = {std::string(80U, 'Y')};
++    ui::ToastNotification notification(bounds, std::string(80U, 'Z'), lines);
++    Canvas canvas;
++    canvas.clear(GrayscaleColor::WHITE);
++
++    notification.render(canvas);
++
++    ASSERT_TRUE(canvas.hasNonWhitePixel(BoundingBox(0, 0, 16, 18)));
++    ASSERT_FALSE(canvas.hasNonWhitePixel(BoundingBox(17, 0, 40, 30)));
++}
++
++TEST(toast_notification_handles_right_and_bottom_canvas_edges) {
++    const BoundingBox bounds(592, 780, 600, 800);
++    const std::vector<std::string> lines = {std::string(80U, 'Q')};
++    ui::ToastNotification notification(bounds, std::string(80U, 'R'), lines);
++    Canvas canvas;
++    canvas.clear(GrayscaleColor::WHITE);
++
++    notification.render(canvas);
++
++    ASSERT_TRUE(canvas.hasNonWhitePixel(BoundingBox(592, 780, 599, 799)));
++}

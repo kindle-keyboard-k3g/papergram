@@ -1,0 +1,190 @@
+4dc2e68 feat(ui): display keyboard and country code toast instructions on login screen
+ src/ui/login_screen.cpp     | 44 +++++++++++++++++++++++++++++++++-
+ src/ui/login_screen.h       |  4 ++++
+ tests/test_login_screen.cpp | 58 +++++++++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 105 insertions(+), 1 deletion(-)
+
+--- FULL DIFF ---
+diff --git a/src/ui/login_screen.cpp b/src/ui/login_screen.cpp
+index 4b50fca..5650d28 100644
+--- a/src/ui/login_screen.cpp
++++ b/src/ui/login_screen.cpp
+@@ -1,12 +1,15 @@
+ #include "login_screen.h"
+ #include "screen_navigator.h"
++#include "toast_notification.h"
++
++#include <vector>
+ 
+ LoginScreen::LoginScreen(mtproto::TelegramClient& client, ScreenNavigator& navigator)
+     : client_(&client) {
+     state_.navigator = &navigator;
+ }
+ 
+ void LoginScreen::onEnter() {
+     state_.step = 0;
+     state_.buffer = "+";
+     state_.status_message = "Enter your phone number (+1234...)";
+@@ -15,35 +18,74 @@ void LoginScreen::onEnter() {
+ void LoginScreen::onExit() {}
+ 
+ void LoginScreen::render(Canvas& canvas) {
+     canvas.clear(GrayscaleColor::WHITE);
+     canvas.blitText(ScreenCoordinate(40, 60), "Kindle Telegram Client", GrayscaleColor::BLACK);
+     canvas.drawLine(ScreenCoordinate(40, 84), ScreenCoordinate(560, 84), GrayscaleColor::BLACK);
+     canvas.blitText(ScreenCoordinate(40, 120), state_.status_message, GrayscaleColor::DARK_GRAY);
+     canvas.drawRect(BoundingBox(40, 150, 560, 190), GrayscaleColor::BLACK);
+     canvas.blitText(ScreenCoordinate(50, 162), state_.buffer + "_", GrayscaleColor::BLACK);
+     canvas.blitText(ScreenCoordinate(40, 220), "[Enter] Continue   [Del] Erase", GrayscaleColor::DARK_GRAY);
++    renderToast(canvas);
+ }
+ 
+ void LoginScreen::handleInput(const InputEvent& event) {
+     if (!event.pressed) return;
+     if (event.code == KeyCode::KEY_ENTER) {
+         submitCurrentStep();
+         return;
+     }
+     if (event.code == KeyCode::KEY_BACKSPACE) {
+-        if (!state_.buffer.empty()) state_.buffer.pop_back();
++        eraseLastCharacter();
+         return;
+     }
+     handleKeyPress(event.code);
+ }
+ 
++void LoginScreen::eraseLastCharacter() {
++    if (state_.step == 0 && state_.buffer.size() <= 1U) {
++        state_.buffer = "+";
++        return;
++    }
++    if (state_.buffer.empty()) return;
++    state_.buffer.pop_back();
++}
++
++void LoginScreen::renderToast(Canvas& canvas) const {
++    if (state_.step == 0) {
++        renderPhoneToast(canvas);
++        return;
++    }
++    if (state_.step == 1) renderCodeToast(canvas);
++}
++
++void LoginScreen::renderPhoneToast(Canvas& canvas) const {
++    const std::vector<std::string> lines = {
++        "- '+' is already included for country code.",
++        "- Hold [ALT] + top row (Q-P) to type 1-0.",
++        "- Example: [ALT]+5 [ALT]+5 for Brazil +55"};
++    ui::ToastNotification toast(
++        BoundingBox(ScreenCoordinate(40, 270), ScreenCoordinate(560, 420)),
++        "KEYBOARD TIPS:", lines);
++    toast.render(canvas);
++}
++
++void LoginScreen::renderCodeToast(Canvas& canvas) const {
++    const std::vector<std::string> lines = {
++        "- Hold [ALT] + top row (Q-P) for digits.",
++        "- Check your Telegram app on phone/PC."};
++    ui::ToastNotification toast(
++        BoundingBox(ScreenCoordinate(40, 270), ScreenCoordinate(560, 420)),
++        "CODE TIPS:", lines);
++    toast.render(canvas);
++}
++
+ void LoginScreen::handleKeyPress(KeyCode code) {
+     char ch = mapKeyToChar(code);
+     if (ch != '\0') state_.buffer.push_back(ch);
+ }
+ 
+ void LoginScreen::submitCurrentStep() {
+     if (state_.step == 0) {
+         state_.step = 1;
+         state_.buffer = "";
+         state_.status_message = "Enter 5-digit verification code:";
+diff --git a/src/ui/login_screen.h b/src/ui/login_screen.h
+index 2276e76..afe947d 100644
+--- a/src/ui/login_screen.h
++++ b/src/ui/login_screen.h
+@@ -21,14 +21,18 @@ private:
+         std::string buffer = "+";
+         std::string status_message = "Enter your phone number";
+         ScreenNavigator* navigator = nullptr;
+     };
+ 
+     mtproto::TelegramClient* client_;
+     LoginState state_;
+ 
+     void handleKeyPress(KeyCode code);
+     void submitCurrentStep();
++    void eraseLastCharacter();
++    void renderToast(Canvas& canvas) const;
++    void renderPhoneToast(Canvas& canvas) const;
++    void renderCodeToast(Canvas& canvas) const;
+     char mapKeyToChar(KeyCode code) const;
+ };
+ 
+ #endif
+diff --git a/tests/test_login_screen.cpp b/tests/test_login_screen.cpp
+new file mode 100644
+index 0000000..6104228
+--- /dev/null
++++ b/tests/test_login_screen.cpp
+@@ -0,0 +1,58 @@
++#include "test_framework.h"
++
++#include "../src/graphics/canvas.h"
++#include "../src/mtproto/telegram_client.h"
++#include "../src/ui/login_screen.h"
++#include "../src/ui/screen_navigator.h"
++
++class LoginTestTransport : public INetworkTransport {
++public:
++    bool post(const std::string&, const std::vector<uint8_t>&,
++              std::vector<uint8_t>&) override {
++        return true;
++    }
++};
++
++TEST(login_screen_phone_step_renders_keyboard_toast) {
++    LoginTestTransport transport;
++    mtproto::TelegramClient client(transport, "/tmp/test_session_login.dat");
++    ScreenNavigator navigator;
++    LoginScreen screen(client, navigator);
++    Canvas canvas;
++
++    screen.onEnter();
++    screen.render(canvas);
++
++    ASSERT_TRUE(canvas.hasNonWhitePixel(BoundingBox(40, 270, 560, 420)));
++}
++
++TEST(login_screen_phone_backspace_preserves_plus_prefix) {
++    LoginTestTransport transport;
++    mtproto::TelegramClient client(transport, "/tmp/test_session_login.dat");
++    ScreenNavigator navigator;
++    LoginScreen screen(client, navigator);
++    Canvas canvas;
++
++    screen.onEnter();
++    screen.handleInput(InputEvent{KeyCode::KEY_BACKSPACE, true});
++    screen.render(canvas);
++
++    ASSERT_TRUE(canvas.hasNonWhitePixel(BoundingBox(50, 162, 57, 173)));
++}
++
++TEST(login_screen_enter_renders_code_toast_and_resets_buffer) {
++    LoginTestTransport transport;
++    mtproto::TelegramClient client(transport, "/tmp/test_session_login.dat");
++    ScreenNavigator navigator;
++    LoginScreen screen(client, navigator);
++    Canvas canvas;
++
++    screen.onEnter();
++    screen.handleInput(InputEvent{KeyCode::KEY_ENTER, true});
++    screen.render(canvas);
++
++    ASSERT_TRUE(canvas.hasNonWhitePixel(BoundingBox(40, 270, 560, 420)));
++    ASSERT_EQ(GrayscaleColor::BLACK,
++              canvas.pixelAt(ScreenCoordinate(55, 279)));
++    ASSERT_FALSE(canvas.hasNonWhitePixel(BoundingBox(50, 162, 57, 173)));
++}

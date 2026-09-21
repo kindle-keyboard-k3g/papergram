@@ -1,0 +1,144 @@
+f8419a2 feat(ui): add ToastNotification component and unit tests
+ src/ui/toast_notification.cpp     | 53 +++++++++++++++++++++++++++++++++++++++
+ src/ui/toast_notification.h       | 37 +++++++++++++++++++++++++++
+ tests/test_toast_notification.cpp | 29 +++++++++++++++++++++
+ 3 files changed, 119 insertions(+)
+
+--- FULL DIFF ---
+diff --git a/src/ui/toast_notification.cpp b/src/ui/toast_notification.cpp
+new file mode 100644
+index 0000000..0cddad7
+--- /dev/null
++++ b/src/ui/toast_notification.cpp
+@@ -0,0 +1,53 @@
++#include "toast_notification.h"
++
++namespace ui {
++
++ToastNotification::ToastNotification(const BoundingBox& bounds,
++                                     const std::string& title,
++                                     const std::vector<std::string>& lines)
++    : data_{bounds, title, lines} {}
++
++void ToastNotification::render(Canvas& canvas) const {
++    renderBackground(canvas);
++    renderBorder(canvas);
++    renderTitle(canvas);
++    renderLines(canvas);
++}
++
++const BoundingBox& ToastNotification::bounds() const {
++    return data_.bounds;
++}
++
++void ToastNotification::renderBackground(Canvas& canvas) const {
++    canvas.fillRect(data_.bounds, GrayscaleColor::LIGHT_GRAY);
++}
++
++void ToastNotification::renderBorder(Canvas& canvas) const {
++    canvas.drawRect(data_.bounds, GrayscaleColor::BLACK);
++    if (data_.bounds.width() <= 4 || data_.bounds.height() <= 4) return;
++    const BoundingBox inner(data_.bounds.left() + 2, data_.bounds.top() + 2,
++                            data_.bounds.right() - 2, data_.bounds.bottom() - 2);
++    canvas.drawRect(inner, GrayscaleColor::DARK_GRAY);
++}
++
++void ToastNotification::renderTitle(Canvas& canvas) const {
++    const ScreenCoordinate origin(data_.bounds.left() + 12,
++                                  data_.bounds.top() + 8);
++    canvas.blitText(origin, data_.title, GrayscaleColor::BLACK);
++}
++
++void ToastNotification::renderLines(Canvas& canvas) const {
++    int y = data_.bounds.top() + 30;
++    for (std::size_t index = 0U;
++         index < data_.lines.size() && fitsLine(data_.bounds, y); ++index) {
++        canvas.blitText(ScreenCoordinate(data_.bounds.left() + 12, y),
++                        data_.lines[index], GrayscaleColor::BLACK);
++        y += 18;
++    }
++}
++
++bool ToastNotification::fitsLine(const BoundingBox& bounds, int y) {
++    return y >= bounds.top() && y + 15 <= bounds.bottom();
++}
++
++} // namespace ui
+diff --git a/src/ui/toast_notification.h b/src/ui/toast_notification.h
+new file mode 100644
+index 0000000..579adff
+--- /dev/null
++++ b/src/ui/toast_notification.h
+@@ -0,0 +1,37 @@
++#ifndef KINDLE_UI_TOAST_NOTIFICATION_H
++#define KINDLE_UI_TOAST_NOTIFICATION_H
++
++#include "../graphics/canvas.h"
++#include "../domain/value_objects.h"
++
++#include <string>
++#include <vector>
++
++namespace ui {
++
++class ToastNotification {
++public:
++    ToastNotification(const BoundingBox& bounds, const std::string& title,
++                      const std::vector<std::string>& lines);
++    void render(Canvas& canvas) const;
++    const BoundingBox& bounds() const;
++
++private:
++    struct ToastData {
++        BoundingBox bounds;
++        std::string title;
++        std::vector<std::string> lines;
++    };
++
++    ToastData data_;
++
++    void renderBackground(Canvas& canvas) const;
++    void renderBorder(Canvas& canvas) const;
++    void renderTitle(Canvas& canvas) const;
++    void renderLines(Canvas& canvas) const;
++    static bool fitsLine(const BoundingBox& bounds, int y);
++};
++
++} // namespace ui
++
++#endif
+diff --git a/tests/test_toast_notification.cpp b/tests/test_toast_notification.cpp
+new file mode 100644
+index 0000000..77e84b5
+--- /dev/null
++++ b/tests/test_toast_notification.cpp
+@@ -0,0 +1,29 @@
++#include "test_framework.h"
++
++#include "../src/graphics/canvas.h"
++#include "../src/ui/toast_notification.h"
++
++#include <string>
++#include <vector>
++
++TEST(toast_notification_keeps_bounds_and_renders_card_content) {
++    const BoundingBox bounds(100, 100, 499, 220);
++    const std::vector<std::string> lines = {"First line", "Second line"};
++    ui::ToastNotification notification(bounds, "Notice", lines);
++    Canvas canvas;
++    canvas.clear(GrayscaleColor::WHITE);
++
++    notification.render(canvas);
++
++    ASSERT_EQ(bounds, notification.bounds());
++    ASSERT_TRUE(canvas.hasNonWhitePixel(BoundingBox(100, 100, 499, 220)));
++    ASSERT_TRUE(canvas.hasNonWhitePixel(BoundingBox(112, 108, 180, 123)));
++    ASSERT_TRUE(canvas.hasNonWhitePixel(BoundingBox(112, 130, 220, 145)));
++    ASSERT_TRUE(canvas.hasNonWhitePixel(BoundingBox(112, 148, 220, 163)));
++    ASSERT_EQ(GrayscaleColor::BLACK,
++              canvas.pixelAt(ScreenCoordinate(114, 109)));
++    ASSERT_EQ(GrayscaleColor::BLACK,
++              canvas.pixelAt(ScreenCoordinate(114, 131)));
++    ASSERT_EQ(GrayscaleColor::BLACK,
++              canvas.pixelAt(ScreenCoordinate(115, 149)));
++}

@@ -1,0 +1,1227 @@
+02ab7a1 feat(ui): implement PopupManager with incoming message filtering and timer lifecycle
+c7c754e feat(ui): add screen lock detection and Kindle screensaver screen
+ docs/plans/transient-wibbling-cocke.md |  77 +++++++++++++++++++++++
+ src/hal/fallback_devices.cpp           |   1 +
+ src/hal/fallback_devices.h             |   2 +-
+ src/hal/input_device.h                 |   3 +-
+ src/hal/input_device_evdev.cpp         |  55 +++++++----------
+ src/hal/input_device_evdev.h           |   2 +-
+ src/main.cpp                           |  52 ++++++++++++----
+ src/ui/popup_manager.cpp               | 107 ++++++++++++++++++++++++++++++++
+ src/ui/popup_manager.h                 |  59 ++++++++++++++++++
+ src/ui/screen_navigator.cpp            |  62 ++++++++++++++-----
+ src/ui/screen_navigator.h              |  11 +++-
+ src/ui/screensaver_screen.cpp          |  52 ++++++++++++++++
+ src/ui/screensaver_screen.h            |  27 ++++++++
+ tests/test_fallback_devices.cpp        |   9 +++
+ tests/test_input_evdev.cpp             |  22 +++++++
+ tests/test_popup_manager.cpp           | 109 +++++++++++++++++++++++++++++++++
+ tests/test_screen_navigator.cpp        |  97 +++++++++++++++++++++++++++++
+ tests/test_screensaver_screen.cpp      |  76 +++++++++++++++++++++++
+ 18 files changed, 756 insertions(+), 67 deletions(-)
+
+--- FULL DIFF ---
+diff --git a/docs/plans/transient-wibbling-cocke.md b/docs/plans/transient-wibbling-cocke.md
+new file mode 100644
+index 0000000..a668dba
+--- /dev/null
++++ b/docs/plans/transient-wibbling-cocke.md
+@@ -0,0 +1,77 @@
++# Plano de Implementação: Detecção de Bloqueio de Tela e Protetor de Tela Padrão no Kindle 3
++
++## 1. Contexto e Problema
++No Kindle Keyboard (Kindle 3 / K3), ao acionar o interruptor de energia ou após o tempo limite de inatividade, o sistema entra em modo de bloqueio/suspensão de tela. Nesse estado, os eventos de teclado e botões de navegação param de responder (ou o dispositivo entra em suspensão). No entanto, o Papergram atualmente não detecta a transição de bloqueio/tela apagada e não altera o framebuffer. Com isso, a tela permanece congelada com o último estado de conversa ou lista de mensagens, dando a impressão de travamento ou app com defeito, sem nenhum feedback visual de que o aparelho está bloqueado ("Kindle is locked").
++
++O objetivo é:
++1. **Detectar o bloqueio/suspensão do Kindle**:
++   - Via evento evdev de hardware (`KEY_POWER` / `KEY_SLEEP` / `KEY_SUSPEND` no interruptor de energia, ou códigos 116 / 142 / 205).
++   - Suporte a monitoramento do estado de energia Lab126 `powerd` / sysfs `/sys/power/state` ou fallback em modo host (ex: tecla configurada ou chamada de API/evento).
++2. **Exibir a tela de proteção de tela padrão (Kindle Screensaver)**:
++   - Uma tela dedicada (`ScreensaverScreen` ou `LockScreen`) com o visual icônico/literário clássico do Kindle (moldura e-ink, ilustração ou tipografia com textura de livro/autor e instrução clara "Kindle is locked" / "Slide power switch to unlock" ou "Deslize o interruptor para desbloquear").
++   - Enquanto bloqueado, todo input de digitação fica desativado/ignorado.
++3. **Restaurar perfeitamente ao desbloquear**:
++   - Ao detectar o retorno (novo toque no interruptor de energia ou desbloqueio de tela), retornar exatamente para a tela anterior ativa (Login, ChatList ou Conversa).
++   - Efetuar um refresh total de e-ink (`FullRefresh` / GC16) para limpar ghosting na entrada e saída do screensaver.
++
++---
++
++## 2. Arquitetura e Componentes
++
++### 2.1 Detecção de Estado de Energia & Bloqueio (`hal/`)
++- Adicionar códigos de tecla de energia ao enum `KeyCode`:
++  - `KEY_POWER` (código Linux 116, ou códigos de slider do Kindle).
++- Atualizar `input_device_evdev.cpp` para mapear `KEY_POWER` (116) e códigos de suspend.
++- No fallback de desenvolvimento (`StdinInputDevice`), mapear um caractere ou atalho de teste (ex: `~` ou escape especial) para disparar `KEY_POWER`, permitindo testar no computador.
++
++### 2.2 Tela de Proteção (`ui/screensaver_screen.h` e `.cpp`)
++- Criação da classe `ScreensaverScreen : public IScreen`:
++  - Herda de `IScreen` (`render`, `handleInput`, `onEnter`, `onExit`).
++  - Renderiza o visual clássico do screensaver do Kindle:
++    - Fundo limpo ou estampa clássica com bordas ornamentadas em e-ink monocromático/tons de cinza (8bpp/4bpp).
++    - Tipografia elegante e clara centralizada:
++      - Caixa central estilizada clássica do Kindle.
++      - Título: *"K I N D L E"* ou logotipo com tipografia serifada pontilhada.
++      - Mensagem de status: *"Device is Locked / Dispositivo Bloqueado"*.
++      - Instrução no rodapé: *"Slide power switch to wake / Deslize o interruptor para reativar"*.
++  - `handleInput(const InputEvent& event)`:
++    - Ignora teclas alfanuméricas normais para prevenir acionamentos acidentais.
++    - Responde ao `KEY_POWER` ou interruptor para despertar e acionar o desbloqueio.
++
++### 2.3 Integração com `ScreenNavigator` e Loop Principal (`main.cpp`)
++- No `ScreenNavigator`:
++  - Adicionar controle de suspensão/bloqueio:
++    - `void lockScreen();`
++    - `void unlockScreen();`
++    - `bool isLocked() const;`
++    - `void setScreensaver(std::unique_ptr<IScreen> screensaver);`
++  - Salva o ponteiro para a tela que estava ativa antes do bloqueio (`previous_active_screen_`).
++  - Ao entrar em lock: ativa `screensaver_screen_`, chama `onEnter()`.
++  - Ao sair do lock: restaura `previous_active_screen_`, chama `onEnter()`.
++- No `main.cpp`:
++  - Ao receber evento `KEY_POWER`:
++    - Se não estiver bloqueado -> `navigator.lockScreen()`, renderiza canvas, copia para framebuffer e dispara `full_refresh` (GC16).
++    - Se estiver bloqueado -> `navigator.unlockScreen()`, renderiza canvas da tela restaurada, copia para framebuffer e dispara `full_refresh` (GC16).
++
++---
++
++## 3. Conformidade com Object Calisthenics e Regras do Projeto
++- Classes com menos de 100 linhas e métodos com menos de 15 linhas.
++- Máximo de 1 nível de indentação por método.
++- Sem cláusulas `else` (usar guard clauses e retornos antecipados).
++- Sem alocações dinâmicas pesadas no loop de renderização.
++- Testes unitários com cobertura abrangente usando o framework existente (`test_framework.h`).
++
++---
++
++## 4. Estratégia de Testes
++1. **`test_screensaver_screen.cpp`**:
++   - Testa renderização do layout e elementos visuais da tela de screensaver no `Canvas` (presença de pixels não brancos nos limites esperados do emblema e textos).
++   - Testa supressão de teclas normais (letras, números, navegação).
++   - Testa que tecla de power/wake desbloqueia.
++2. **`test_screen_navigator.cpp`**:
++   - Testa transição para `lockScreen()` e retorno para a tela anterior (`showChatList()` -> `lockScreen()` -> `unlockScreen()` restaura chat list).
++3. **`test_input_evdev.cpp` / `test_fallback_devices.cpp`**:
++   - Testa tradução correta de `KEY_POWER` a partir do código Linux 116 e no dispositivo fallback.
++4. **Verificação Sanitizer e Debug**:
++   - Executar `make test` e `make test-asan` para garantir ausência de regressões e vazamentos de memória.
+diff --git a/src/hal/fallback_devices.cpp b/src/hal/fallback_devices.cpp
+index bc8b557..76938eb 100644
+--- a/src/hal/fallback_devices.cpp
++++ b/src/hal/fallback_devices.cpp
+@@ -152,13 +152,14 @@ bool StdinInputDevice::mapDigitOrControl(char ch, InputEvent& out) {
+     if (ch == '\n' || ch == '\r') { out.code = KeyCode::KEY_ENTER; DEBUG_LOG("Input", "Mapped newline to KEY_ENTER"); return true; }
+     if (ch == 127 || ch == '\b') { out.code = KeyCode::KEY_BACKSPACE; DEBUG_LOG("Input", "Mapped backspace to KEY_BACKSPACE"); return true; }
+     if (ch == ' ') { out.code = KeyCode::KEY_SPACE; DEBUG_LOG("Input", "Mapped space to KEY_SPACE"); return true; }
+     return false;
+ }
+ 
+ bool StdinInputDevice::mapCharToEvent(char ch, InputEvent& out) {
+     out.pressed = true;
+     if (ch == 27) return parseEscapeSequence(out);
+     if (ch == 4) { closed_ = true; return false; }
++    if (ch == '~') { out.code = KeyCode::KEY_POWER; return true; }
+     if (mapAlphaChar(ch, out)) return true;
+     return mapDigitOrControl(ch, out);
+ }
+diff --git a/src/hal/fallback_devices.h b/src/hal/fallback_devices.h
+index a93762e..2fce988 100644
+--- a/src/hal/fallback_devices.h
++++ b/src/hal/fallback_devices.h
+@@ -46,24 +46,24 @@ private:
+     bool is_active_ = false;
+ };
+ 
+ class StdinInputDevice : public IInputDevice {
+ public:
+     StdinInputDevice();
+     ~StdinInputDevice() override = default;
+ 
+     bool pollEvent(InputEvent& outEvent, int timeoutMs) override;
+     bool isClosed() const override;
++    bool mapCharToEvent(char ch, InputEvent& out);
+ 
+ private:
+     bool readChar(char& ch, int timeoutMs);
+-    bool mapCharToEvent(char ch, InputEvent& out);
+     bool mapAlphaChar(char ch, InputEvent& out);
+     bool mapDigitOrControl(char ch, InputEvent& out);
+     bool parseEscapeSequence(InputEvent& out);
+     bool mapAnsiBracketSequence(char code, InputEvent& out);
+ 
+     bool closed_ = false;
+     TerminalModeRestorer terminal_mode_;
+ };
+ 
+ #endif
+diff --git a/src/hal/input_device.h b/src/hal/input_device.h
+index 5967118..f55e14c 100644
+--- a/src/hal/input_device.h
++++ b/src/hal/input_device.h
+@@ -44,21 +44,22 @@ enum class KeyCode : std::uint16_t {
+     KEY_BACKSPACE,
+     KEY_SPACE,
+     KEY_UP,
+     KEY_DOWN,
+     KEY_LEFT,
+     KEY_RIGHT,
+     KEY_PAGEUP,
+     KEY_PAGEDOWN,
+     KEY_BACK,
+     KEY_MENU,
+-    KEY_SYM
++    KEY_SYM,
++    KEY_POWER
+ };
+ 
+ struct InputEvent {
+     KeyCode code;
+     bool pressed;
+ };
+ 
+ class IInputDevice {
+ public:
+     virtual ~IInputDevice() = default;
+diff --git a/src/hal/input_device_evdev.cpp b/src/hal/input_device_evdev.cpp
+index 2ef08d6..e51e3d2 100644
+--- a/src/hal/input_device_evdev.cpp
++++ b/src/hal/input_device_evdev.cpp
+@@ -11,47 +11,29 @@ constexpr std::uint16_t LINUX_KEY_9 = KEY_9;
+ constexpr std::uint16_t LINUX_KEY_ENTER = KEY_ENTER;
+ constexpr std::uint16_t LINUX_KEY_BACKSPACE = KEY_BACKSPACE;
+ constexpr std::uint16_t LINUX_KEY_SPACE = KEY_SPACE;
+ constexpr std::uint16_t LINUX_KEY_UP = KEY_UP;
+ constexpr std::uint16_t LINUX_KEY_DOWN = KEY_DOWN;
+ constexpr std::uint16_t LINUX_KEY_LEFT = KEY_LEFT;
+ constexpr std::uint16_t LINUX_KEY_RIGHT = KEY_RIGHT;
+ constexpr std::uint16_t LINUX_KEY_PAGEUP = KEY_PAGEUP;
+ constexpr std::uint16_t LINUX_KEY_PAGEDOWN = KEY_PAGEDOWN;
+ constexpr std::uint16_t LINUX_KEY_ESC = KEY_ESC;
++constexpr std::uint16_t LINUX_KEY_POWER = 116;
++constexpr std::uint16_t LINUX_KEY_SLEEP = 142;
++constexpr std::uint16_t LINUX_KEY_SUSPEND = 205;
+ 
+-constexpr std::uint16_t LINUX_KEY_A = KEY_A;
+-constexpr std::uint16_t LINUX_KEY_B = KEY_B;
+-constexpr std::uint16_t LINUX_KEY_C = KEY_C;
+-constexpr std::uint16_t LINUX_KEY_D = KEY_D;
+-constexpr std::uint16_t LINUX_KEY_E = KEY_E;
+-constexpr std::uint16_t LINUX_KEY_F = KEY_F;
+-constexpr std::uint16_t LINUX_KEY_G = KEY_G;
+-constexpr std::uint16_t LINUX_KEY_H = KEY_H;
+-constexpr std::uint16_t LINUX_KEY_I = KEY_I;
+-constexpr std::uint16_t LINUX_KEY_J = KEY_J;
+-constexpr std::uint16_t LINUX_KEY_K = KEY_K;
+-constexpr std::uint16_t LINUX_KEY_L = KEY_L;
+-constexpr std::uint16_t LINUX_KEY_M = KEY_M;
+-constexpr std::uint16_t LINUX_KEY_N = KEY_N;
+-constexpr std::uint16_t LINUX_KEY_O = KEY_O;
+-constexpr std::uint16_t LINUX_KEY_P = KEY_P;
+-constexpr std::uint16_t LINUX_KEY_Q = KEY_Q;
+-constexpr std::uint16_t LINUX_KEY_R = KEY_R;
+-constexpr std::uint16_t LINUX_KEY_S = KEY_S;
+-constexpr std::uint16_t LINUX_KEY_T = KEY_T;
+-constexpr std::uint16_t LINUX_KEY_U = KEY_U;
+-constexpr std::uint16_t LINUX_KEY_V = KEY_V;
+-constexpr std::uint16_t LINUX_KEY_W = KEY_W;
+-constexpr std::uint16_t LINUX_KEY_X = KEY_X;
+-constexpr std::uint16_t LINUX_KEY_Y = KEY_Y;
+-constexpr std::uint16_t LINUX_KEY_Z = KEY_Z;
++constexpr std::uint16_t LETTER_CODES[26] = {
++    KEY_A, KEY_B, KEY_C, KEY_D, KEY_E, KEY_F, KEY_G, KEY_H, KEY_I, KEY_J,
++    KEY_K, KEY_L, KEY_M, KEY_N, KEY_O, KEY_P, KEY_Q, KEY_R, KEY_S, KEY_T,
++    KEY_U, KEY_V, KEY_W, KEY_X, KEY_Y, KEY_Z
++};
+ }
+ 
+ #undef KEY_0
+ #undef KEY_1
+ #undef KEY_9
+ #undef KEY_ENTER
+ #undef KEY_BACKSPACE
+ #undef KEY_SPACE
+ #undef KEY_UP
+ #undef KEY_DOWN
+@@ -80,32 +62,28 @@ constexpr std::uint16_t LINUX_KEY_Z = KEY_Z;
+ #undef KEY_Q
+ #undef KEY_R
+ #undef KEY_S
+ #undef KEY_T
+ #undef KEY_U
+ #undef KEY_V
+ #undef KEY_W
+ #undef KEY_X
+ #undef KEY_Y
+ #undef KEY_Z
++#undef KEY_POWER
++#undef KEY_SLEEP
++#undef KEY_SUSPEND
+ 
+ namespace {
+ bool translateLetter(std::uint16_t code, KeyCode& out) {
+-    static const std::uint16_t letter_codes[26] = {
+-        LINUX_KEY_A, LINUX_KEY_B, LINUX_KEY_C, LINUX_KEY_D, LINUX_KEY_E, LINUX_KEY_F,
+-        LINUX_KEY_G, LINUX_KEY_H, LINUX_KEY_I, LINUX_KEY_J, LINUX_KEY_K, LINUX_KEY_L,
+-        LINUX_KEY_M, LINUX_KEY_N, LINUX_KEY_O, LINUX_KEY_P, LINUX_KEY_Q, LINUX_KEY_R,
+-        LINUX_KEY_S, LINUX_KEY_T, LINUX_KEY_U, LINUX_KEY_V, LINUX_KEY_W, LINUX_KEY_X,
+-        LINUX_KEY_Y, LINUX_KEY_Z
+-    };
+     for (std::size_t i = 0; i < 26; ++i) {
+-        if (letter_codes[i] == code) {
++        if (LETTER_CODES[i] == code) {
+             out = static_cast<KeyCode>(static_cast<int>(KeyCode::KEY_A) + i);
+             return true;
+         }
+     }
+     return false;
+ }
+ 
+ bool translateNavigation(std::uint16_t code, KeyCode& out) {
+     if (code == LINUX_KEY_UP) { out = KeyCode::KEY_UP; return true; }
+     if (code == LINUX_KEY_DOWN) { out = KeyCode::KEY_DOWN; return true; }
+@@ -115,21 +93,30 @@ bool translateNavigation(std::uint16_t code, KeyCode& out) {
+         out = KeyCode::KEY_PAGEUP;
+         return true;
+     }
+     if (code == LINUX_KEY_PAGEDOWN || code == 104 || code == 191) {
+         out = KeyCode::KEY_PAGEDOWN;
+         return true;
+     }
+     return false;
+ }
+ 
++bool translatePower(std::uint16_t code, KeyCode& out) {
++    if (code == LINUX_KEY_POWER || code == LINUX_KEY_SLEEP || code == LINUX_KEY_SUSPEND) {
++        out = KeyCode::KEY_POWER;
++        return true;
++    }
++    return false;
++}
++
+ bool translateSpecial(std::uint16_t code, KeyCode& out) {
++    if (translatePower(code, out)) return true;
+     if (code >= LINUX_KEY_1 && code <= LINUX_KEY_9) {
+         out = static_cast<KeyCode>(static_cast<int>(KeyCode::KEY_1) + (code - LINUX_KEY_1));
+         return true;
+     }
+     if (code == LINUX_KEY_0) { out = KeyCode::KEY_0; return true; }
+     if (code == LINUX_KEY_ENTER || code == 194) { out = KeyCode::KEY_ENTER; return true; }
+     if (code == LINUX_KEY_BACKSPACE) { out = KeyCode::KEY_BACKSPACE; return true; }
+     if (code == LINUX_KEY_SPACE) { out = KeyCode::KEY_SPACE; return true; }
+     if (code == LINUX_KEY_ESC || code == 158) { out = KeyCode::KEY_BACK; return true; }
+     return translateNavigation(code, out);
+diff --git a/src/hal/input_device_evdev.h b/src/hal/input_device_evdev.h
+index 41aa9a0..62a44f0 100644
+--- a/src/hal/input_device_evdev.h
++++ b/src/hal/input_device_evdev.h
+@@ -3,20 +3,20 @@
+ 
+ #include "input_device.h"
+ #include <vector>
+ 
+ class InputDeviceEvdev : public IInputDevice {
+ public:
+     InputDeviceEvdev();
+     ~InputDeviceEvdev() override;
+ 
+     bool pollEvent(InputEvent& out_event, int timeout_ms) override;
++    bool translateCode(std::uint16_t type, std::uint16_t code, std::int32_t value, InputEvent& out) const;
+ 
+ private:
+     std::vector<int> fds_;
+     bool has_devices_ = false;
+ 
+     void openDevices();
+-    bool translateCode(std::uint16_t type, std::uint16_t code, std::int32_t value, InputEvent& out) const;
+ };
+ 
+ #endif
+diff --git a/src/main.cpp b/src/main.cpp
+index 049a6c2..a0458b1 100644
+--- a/src/main.cpp
++++ b/src/main.cpp
+@@ -7,20 +7,21 @@
+ #include "hal/eink_controller_mxc.h"
+ #include "hal/fallback_devices.h"
+ #include "hal/frame_buffer_fb0.h"
+ #include "hal/http_transport.h"
+ #include "hal/input_device_evdev.h"
+ #include "mtproto/telegram_client.h"
+ #include "ui/chat_list_screen.h"
+ #include "ui/conversation_screen.h"
+ #include "ui/login_screen.h"
+ #include "ui/screen_navigator.h"
++#include "ui/screensaver_screen.h"
+ 
+ #include <csignal>
+ #include <iostream>
+ #include <memory>
+ 
+ namespace {
+ volatile std::sig_atomic_t g_running = 1;
+ 
+ void handleSignal(int) {
+     g_running = 0;
+@@ -40,65 +41,92 @@ HardwareContext initializeHardware() {
+         ctx.input = std::make_unique<InputDeviceEvdev>();
+         std::cout << "[Kindle Telegram] Hardware framebuffer and e-ink initialized." << std::endl;
+         return ctx;
+     } catch (const std::exception& ex) {
+         std::cout << "[Kindle Telegram] Native e-ink unavailable (" << ex.what()
+                   << "). Using host fallback." << std::endl;
+         ctx.fb = std::make_unique<MemoryFrameBuffer>();
+         ctx.eink = std::make_unique<DummyEinkController>();
+         ctx.input = std::make_unique<StdinInputDevice>();
+         std::cout << "[Kindle Telegram] [Host Mode] Framebuffer is written to /tmp/kindle_fb.ppm" << std::endl;
+-        std::cout << "[Kindle Telegram] [Host Mode] Controls: type keys, Enter: submit, Backspace: delete, Ctrl+D: exit" << std::endl;
++        std::cout << "[Kindle Telegram] [Host Mode] Controls: type keys, Enter: submit, Backspace: delete, ~: lock/unlock, Ctrl+D: exit" << std::endl;
+         return ctx;
+     }
+ }
++
++void handlePowerToggle(ScreenNavigator& navigator) {
++    if (navigator.isLocked()) {
++        navigator.unlockScreen();
++        return;
++    }
++    navigator.lockScreen();
++}
++
++void renderFrame(ScreenNavigator& navigator, Canvas& canvas, IFrameBuffer& fb) {
++    navigator.render(canvas);
++    fb.copyFrom(canvas.backBuffer(), Canvas::BUFFER_SIZE);
++    fb.flush();
++}
++
++void processEvent(const InputEvent& ev, ScreenNavigator& navigator, Canvas& canvas,
++                  HardwareContext& hw, FullRefresh& full_refresh,
++                  TypingRefresh& typing_refresh, DirtyTracker& dirty_tracker) {
++    if (ev.code == KeyCode::KEY_POWER) {
++        if (!ev.pressed) return;
++        handlePowerToggle(navigator);
++        renderFrame(navigator, canvas, *hw.fb);
++        full_refresh.refresh(dirty_tracker, true);
++        std::cout << "[Kindle Telegram] Power toggled. Screen updated -> /tmp/kindle_fb.ppm" << std::endl;
++        return;
++    }
++    if (navigator.isLocked()) return;
++    navigator.handleInput(ev);
++    renderFrame(navigator, canvas, *hw.fb);
++    dirty_tracker.mark(BoundingBox(0, 0, 599, 799));
++    typing_refresh.refresh(dirty_tracker);
++    dirty_tracker.clear();
++    std::cout << "[Kindle Telegram] Screen updated -> /tmp/kindle_fb.ppm" << std::endl;
++}
+ }
+ 
+ int main() {
+     std::signal(SIGINT, handleSignal);
+     std::signal(SIGTERM, handleSignal);
+ 
+     std::cout << "[Kindle Telegram] Starting..." << std::endl;
+     HardwareContext hw = initializeHardware();
+     HttpTransport transport("149.154.167.50", 80);
+ 
+     mtproto::TelegramClient client(transport);
+     Canvas canvas;
+     DirtyTracker dirty_tracker;
+     FullRefresh full_refresh(*hw.eink);
+     TypingRefresh typing_refresh(*hw.eink);
+ 
+     ScreenNavigator navigator;
+     auto login = std::make_unique<LoginScreen>(client, navigator);
+     auto chat_list = std::make_unique<ChatListScreen>(client, navigator);
+     auto conv = std::make_unique<ConversationScreen>(client, navigator);
++    auto screensaver = std::make_unique<ScreensaverScreen>(&navigator);
+     navigator.setScreens(std::move(login), std::move(chat_list), std::move(conv));
++    navigator.setScreensaver(std::move(screensaver));
+ 
+     if (client.isAuthorized()) navigator.showChatList();
+-    navigator.render(canvas);
+-    hw.fb->copyFrom(canvas.backBuffer(), Canvas::BUFFER_SIZE);
+-    hw.fb->flush();
++    renderFrame(navigator, canvas, *hw.fb);
+     full_refresh.refresh(dirty_tracker, true);
+ 
+     std::cout << "[Kindle Telegram] Ready. Initial frame saved to /tmp/kindle_fb.ppm" << std::endl;
+     std::cout << "[Kindle Telegram] Entering main loop (listening for input)..." << std::endl;
+     while (g_running) {
+         InputEvent ev;
+         if (hw.input->pollEvent(ev, 100)) {
+-            navigator.handleInput(ev);
+-            navigator.render(canvas);
+-            hw.fb->copyFrom(canvas.backBuffer(), Canvas::BUFFER_SIZE);
+-            hw.fb->flush();
+-            dirty_tracker.mark(BoundingBox(0, 0, 599, 799));
+-            typing_refresh.refresh(dirty_tracker);
+-            dirty_tracker.clear();
+-            std::cout << "[Kindle Telegram] Screen updated -> /tmp/kindle_fb.ppm" << std::endl;
++            processEvent(ev, navigator, canvas, hw, full_refresh, typing_refresh, dirty_tracker);
+         }
+         if (hw.input->isClosed()) {
+             std::cout << "[Kindle Telegram] Input stream closed. Exiting." << std::endl;
+             break;
+         }
+     }
+ 
+     std::cout << "[Kindle Telegram] Shutting down cleanly." << std::endl;
+     return 0;
+ }
+diff --git a/src/ui/popup_manager.cpp b/src/ui/popup_manager.cpp
+new file mode 100644
+index 0000000..b28db09
+--- /dev/null
++++ b/src/ui/popup_manager.cpp
+@@ -0,0 +1,107 @@
++#include "popup_manager.h"
++
++#include "../graphics/canvas.h"
++
++namespace ui {
++
++PopupManager::PopupManager() = default;
++
++bool PopupManager::show(const std::string& title,
++                        const std::vector<std::string>& lines,
++                        PopupDuration duration) {
++    const BoundingBox bounds = state_.layout.calculateBounds(0U, state_.position);
++    const PopupEntry entry(bounds, title, lines, duration);
++    if (!state_.collection.push(entry, state_.mode, state_.current_time)) {
++        return false;
++    }
++    markRedraw();
++    return true;
++}
++
++bool PopupManager::notifyIncomingMessage(
++    const Message& message, const std::optional<ChatId>& active_chat_id,
++    bool muted) {
++    if (message.isOutgoing()) {
++        return false;
++    }
++    if (isForActiveChat(message, active_chat_id)) {
++        return false;
++    }
++    if (muted) {
++        return false;
++    }
++    return show(message.sender(), {message.text().value()});
++}
++
++bool PopupManager::update(PopupTimestamp now) {
++    state_.current_time = now;
++    if (!state_.collection.update(now, state_.mode)) {
++        return false;
++    }
++    markRedraw();
++    return true;
++}
++
++void PopupManager::render(Canvas& canvas) {
++    if (visibleCount() == 0U) {
++        return;
++    }
++    state_.collection.render(canvas, state_.layout, state_.position, state_.mode);
++}
++
++void PopupManager::setMode(PopupMode mode) {
++    if (state_.mode == mode) {
++        return;
++    }
++    state_.mode = mode;
++    markRedraw();
++}
++
++void PopupManager::setPosition(PopupPosition position) {
++    if (state_.position == position) {
++        return;
++    }
++    state_.position = position;
++    markRedraw();
++}
++
++PopupMode PopupManager::mode() const {
++    return state_.mode;
++}
++
++PopupPosition PopupManager::position() const {
++    return state_.position;
++}
++
++std::size_t PopupManager::visibleCount() const {
++    return state_.collection.visibleCount(state_.mode);
++}
++
++std::size_t PopupManager::pendingCount() const {
++    return state_.collection.pendingCount(state_.mode);
++}
++
++bool PopupManager::needsRedraw() const {
++    return state_.needs_redraw;
++}
++
++const std::optional<BoundingBox>& PopupManager::damageArea() const {
++    return state_.damage_area;
++}
++
++void PopupManager::acknowledgeRedraw() {
++    state_.needs_redraw = false;
++}
++
++void PopupManager::markRedraw() {
++    state_.needs_redraw = true;
++    state_.damage_area = state_.layout.calculateDamageArea(visibleCount(),
++                                                            state_.position);
++}
++
++bool PopupManager::isForActiveChat(
++    const Message& message, const std::optional<ChatId>& active_chat_id) const {
++    return active_chat_id.has_value() && message.chatId() == *active_chat_id;
++}
++
++} // namespace ui
+diff --git a/src/ui/popup_manager.h b/src/ui/popup_manager.h
+new file mode 100644
+index 0000000..64ba420
+--- /dev/null
++++ b/src/ui/popup_manager.h
+@@ -0,0 +1,59 @@
++#pragma once
++
++#include "popup_collection.h"
++#include "popup_layout.h"
++#include "popup_types.h"
++#include "../domain/message.h"
++
++#include <optional>
++#include <string>
++#include <vector>
++
++namespace ui {
++
++class PopupManager {
++public:
++    PopupManager();
++
++    bool show(const std::string& title,
++              const std::vector<std::string>& lines,
++              PopupDuration duration = PopupDuration::defaultValue());
++
++    bool notifyIncomingMessage(const Message& message,
++                               const std::optional<ChatId>& active_chat_id,
++                               bool muted = false);
++
++    bool update(PopupTimestamp now);
++    void render(Canvas& canvas);
++
++    void setMode(PopupMode mode);
++    void setPosition(PopupPosition position);
++
++    PopupMode mode() const;
++    PopupPosition position() const;
++    std::size_t visibleCount() const;
++    std::size_t pendingCount() const;
++
++    bool needsRedraw() const;
++    const std::optional<BoundingBox>& damageArea() const;
++    void acknowledgeRedraw();
++
++private:
++    struct State {
++        PopupCollection collection;
++        PopupLayout layout;
++        PopupPosition position{PopupPosition::BOTTOM};
++        PopupMode mode{PopupMode::VISUAL_STACK};
++        PopupTimestamp current_time{std::chrono::milliseconds(0)};
++        bool needs_redraw{false};
++        std::optional<BoundingBox> damage_area;
++    };
++
++    void markRedraw();
++    bool isForActiveChat(const Message& message,
++                         const std::optional<ChatId>& active_chat_id) const;
++
++    State state_;
++};
++
++} // namespace ui
+diff --git a/src/ui/screen_navigator.cpp b/src/ui/screen_navigator.cpp
+index 8c4c471..5288524 100644
+--- a/src/ui/screen_navigator.cpp
++++ b/src/ui/screen_navigator.cpp
+@@ -1,42 +1,72 @@
+ #include "screen_navigator.h"
+ 
+ ScreenNavigator::ScreenNavigator() = default;
+ 
+ void ScreenNavigator::setScreens(std::unique_ptr<IScreen> login,
+                                 std::unique_ptr<IScreen> chat_list,
+                                 std::unique_ptr<IScreen> conversation) {
+-    screens_.login = std::move(login);
+-    screens_.chat_list = std::move(chat_list);
+-    screens_.conversation = std::move(conversation);
+-    active_screen_ = screens_.login.get();
++    state_.login = std::move(login);
++    state_.chat_list = std::move(chat_list);
++    state_.conversation = std::move(conversation);
++    state_.active_screen = state_.login.get();
++}
++
++void ScreenNavigator::setScreensaver(std::unique_ptr<IScreen> screensaver) {
++    state_.screensaver = std::move(screensaver);
+ }
+ 
+ void ScreenNavigator::showLogin() {
+-    if (active_screen_) active_screen_->onExit();
+-    active_screen_ = screens_.login.get();
+-    if (active_screen_) active_screen_->onEnter();
++    if (state_.locked) return;
++    if (state_.active_screen) state_.active_screen->onExit();
++    state_.active_screen = state_.login.get();
++    if (state_.active_screen) state_.active_screen->onEnter();
+ }
+ 
+ void ScreenNavigator::showChatList() {
+-    if (active_screen_) active_screen_->onExit();
+-    active_screen_ = screens_.chat_list.get();
+-    if (active_screen_) active_screen_->onEnter();
++    if (state_.locked) return;
++    if (state_.active_screen) state_.active_screen->onExit();
++    state_.active_screen = state_.chat_list.get();
++    if (state_.active_screen) state_.active_screen->onEnter();
+ }
+ 
+ void ScreenNavigator::openConversation(const ChatId&, const std::string&) {
+-    if (active_screen_) active_screen_->onExit();
+-    active_screen_ = screens_.conversation.get();
+-    if (active_screen_) active_screen_->onEnter();
++    if (state_.locked) return;
++    if (state_.active_screen) state_.active_screen->onExit();
++    state_.active_screen = state_.conversation.get();
++    if (state_.active_screen) state_.active_screen->onEnter();
++}
++
++void ScreenNavigator::lockScreen() {
++    if (state_.locked) return;
++    if (!state_.screensaver) return;
++    state_.previous_active_screen = state_.active_screen;
++    if (state_.active_screen) state_.active_screen->onExit();
++    state_.active_screen = state_.screensaver.get();
++    state_.locked = true;
++    if (state_.active_screen) state_.active_screen->onEnter();
++}
++
++void ScreenNavigator::unlockScreen() {
++    if (!state_.locked) return;
++    if (state_.active_screen) state_.active_screen->onExit();
++    state_.active_screen = state_.previous_active_screen;
++    state_.previous_active_screen = nullptr;
++    state_.locked = false;
++    if (state_.active_screen) state_.active_screen->onEnter();
++}
++
++bool ScreenNavigator::isLocked() const {
++    return state_.locked;
+ }
+ 
+ void ScreenNavigator::render(Canvas& canvas) {
+-    if (active_screen_) active_screen_->render(canvas);
++    if (state_.active_screen) state_.active_screen->render(canvas);
+ }
+ 
+ void ScreenNavigator::handleInput(const InputEvent& event) {
+-    if (active_screen_) active_screen_->handleInput(event);
++    if (state_.active_screen) state_.active_screen->handleInput(event);
+ }
+ 
+ IScreen* ScreenNavigator::currentScreen() const {
+-    return active_screen_;
++    return state_.active_screen;
+ }
+diff --git a/src/ui/screen_navigator.h b/src/ui/screen_navigator.h
+index 5879b44..9729070 100644
+--- a/src/ui/screen_navigator.h
++++ b/src/ui/screen_navigator.h
+@@ -6,31 +6,38 @@
+ #include <memory>
+ #include <vector>
+ 
+ class ScreenNavigator {
+ public:
+     ScreenNavigator();
+ 
+     void setScreens(std::unique_ptr<IScreen> login,
+                     std::unique_ptr<IScreen> chat_list,
+                     std::unique_ptr<IScreen> conversation);
++    void setScreensaver(std::unique_ptr<IScreen> screensaver);
+ 
+     void showLogin();
+     void showChatList();
+     void openConversation(const ChatId& chat_id, const std::string& chat_title);
++    void lockScreen();
++    void unlockScreen();
++    bool isLocked() const;
+ 
+     void render(Canvas& canvas);
+     void handleInput(const InputEvent& event);
+     IScreen* currentScreen() const;
+ 
+ private:
+     struct NavigationState {
+         std::unique_ptr<IScreen> login;
+         std::unique_ptr<IScreen> chat_list;
+         std::unique_ptr<IScreen> conversation;
++        std::unique_ptr<IScreen> screensaver;
++        IScreen* active_screen = nullptr;
++        IScreen* previous_active_screen = nullptr;
++        bool locked = false;
+     };
+ 
+-    NavigationState screens_;
+-    IScreen* active_screen_ = nullptr;
++    NavigationState state_;
+ };
+ 
+ #endif
+diff --git a/src/ui/screensaver_screen.cpp b/src/ui/screensaver_screen.cpp
+new file mode 100644
+index 0000000..91ed133
+--- /dev/null
++++ b/src/ui/screensaver_screen.cpp
+@@ -0,0 +1,52 @@
++#include "screensaver_screen.h"
++#include "screen_navigator.h"
++
++ScreensaverScreen::ScreensaverScreen(ScreenNavigator* navigator)
++    : navigator_(navigator) {}
++
++void ScreensaverScreen::render(Canvas& canvas) {
++    canvas.clear(GrayscaleColor::WHITE);
++    renderBorders(canvas);
++    renderEmblem(canvas);
++    renderCenterText(canvas);
++    renderFooter(canvas);
++}
++
++void ScreensaverScreen::renderBorders(Canvas& canvas) const {
++    canvas.drawRect(16, 16, 583, 783, GrayscaleColor::BLACK);
++    canvas.drawRect(20, 20, 579, 779, GrayscaleColor::BLACK);
++    canvas.drawLine(20, 24, 579, 24, GrayscaleColor::BLACK);
++    canvas.drawLine(20, 775, 579, 775, GrayscaleColor::BLACK);
++}
++
++void ScreensaverScreen::renderEmblem(Canvas& canvas) const {
++    canvas.drawRect(100, 260, 499, 520, GrayscaleColor::BLACK);
++    canvas.drawRect(104, 264, 495, 516, GrayscaleColor::BLACK);
++    canvas.drawLine(150, 345, 450, 345, GrayscaleColor::BLACK);
++    canvas.drawLine(180, 450, 420, 450, GrayscaleColor::BLACK);
++}
++
++void ScreensaverScreen::renderCenterText(Canvas& canvas) const {
++    canvas.blitText(ScreenCoordinate(256, 310), "K I N D L E");
++    canvas.blitText(ScreenCoordinate(236, 380), "Device is Locked");
++    canvas.blitText(ScreenCoordinate(216, 410), "Dispositivo Bloqueado");
++}
++
++void ScreensaverScreen::renderFooter(Canvas& canvas) const {
++    canvas.blitText(ScreenCoordinate(196, 720), "Slide power switch to wake");
++    canvas.blitText(ScreenCoordinate(160, 742), "Deslize o interruptor para reativar");
++}
++
++void ScreensaverScreen::handleInput(const InputEvent& event) {
++    if (!event.pressed) return;
++    if (event.code != KeyCode::KEY_POWER) return;
++    wakeDevice();
++}
++
++void ScreensaverScreen::wakeDevice() {
++    if (!navigator_) return;
++    navigator_->unlockScreen();
++}
++
++void ScreensaverScreen::onEnter() {}
++void ScreensaverScreen::onExit() {}
+diff --git a/src/ui/screensaver_screen.h b/src/ui/screensaver_screen.h
+new file mode 100644
+index 0000000..ddd380d
+--- /dev/null
++++ b/src/ui/screensaver_screen.h
+@@ -0,0 +1,27 @@
++#ifndef KINDLE_UI_SCREENSAVER_SCREEN_H
++#define KINDLE_UI_SCREENSAVER_SCREEN_H
++
++#include "screen.h"
++
++class ScreenNavigator;
++
++class ScreensaverScreen : public IScreen {
++public:
++    explicit ScreensaverScreen(ScreenNavigator* navigator = nullptr);
++
++    void render(Canvas& canvas) override;
++    void handleInput(const InputEvent& event) override;
++    void onEnter() override;
++    void onExit() override;
++
++private:
++    ScreenNavigator* navigator_;
++
++    void renderBorders(Canvas& canvas) const;
++    void renderEmblem(Canvas& canvas) const;
++    void renderCenterText(Canvas& canvas) const;
++    void renderFooter(Canvas& canvas) const;
++    void wakeDevice();
++};
++
++#endif
+diff --git a/tests/test_fallback_devices.cpp b/tests/test_fallback_devices.cpp
+index 8f2ada7..cd58ece 100644
+--- a/tests/test_fallback_devices.cpp
++++ b/tests/test_fallback_devices.cpp
+@@ -18,10 +18,19 @@ TEST(dummy_eink_controller_accepts_updates) {
+     eink.updateArea(BoundingBox(10, 10, 100, 100), false);
+     eink.updateArea(BoundingBox(0, 0, 600, 800), true);
+     eink.fullRefresh();
+     ASSERT_TRUE(true);
+ }
+ 
+ TEST(stdin_input_device_initial_state_is_not_closed) {
+     StdinInputDevice device;
+     ASSERT_FALSE(device.isClosed());
+ }
++
++TEST(stdin_input_device_maps_tilde_to_key_power) {
++    StdinInputDevice device;
++    InputEvent ev{};
++    bool mapped = device.mapCharToEvent('~', ev);
++    ASSERT_TRUE(mapped);
++    ASSERT_TRUE(ev.pressed);
++    ASSERT_TRUE(ev.code == KeyCode::KEY_POWER);
++}
+diff --git a/tests/test_input_evdev.cpp b/tests/test_input_evdev.cpp
+new file mode 100644
+index 0000000..c023078
+--- /dev/null
++++ b/tests/test_input_evdev.cpp
+@@ -0,0 +1,22 @@
++#include "test_framework.h"
++#include "../src/hal/input_device_evdev.h"
++#include <linux/input.h>
++
++#undef KEY_POWER
++
++TEST(input_device_evdev_translates_power_keys) {
++    InputDeviceEvdev device;
++    InputEvent ev{};
++
++    ASSERT_TRUE(device.translateCode(EV_KEY, 116, 1, ev));
++    ASSERT_TRUE(ev.pressed);
++    ASSERT_TRUE(ev.code == KeyCode::KEY_POWER);
++
++    ASSERT_TRUE(device.translateCode(EV_KEY, 142, 1, ev));
++    ASSERT_TRUE(ev.pressed);
++    ASSERT_TRUE(ev.code == KeyCode::KEY_POWER);
++
++    ASSERT_TRUE(device.translateCode(EV_KEY, 205, 0, ev));
++    ASSERT_FALSE(ev.pressed);
++    ASSERT_TRUE(ev.code == KeyCode::KEY_POWER);
++}
+diff --git a/tests/test_popup_manager.cpp b/tests/test_popup_manager.cpp
+new file mode 100644
+index 0000000..8625251
+--- /dev/null
++++ b/tests/test_popup_manager.cpp
+@@ -0,0 +1,109 @@
++#include "test_framework.h"
++
++#include "../src/domain/message.h"
++#include "../src/graphics/canvas.h"
++#include "../src/ui/popup_manager.h"
++
++#include <chrono>
++#include <string>
++#include <vector>
++
++namespace {
++
++ui::PopupTimestamp timestamp(int milliseconds) {
++    return ui::PopupTimestamp(std::chrono::milliseconds(milliseconds));
++}
++
++Message message(std::int64_t chat_id, bool outgoing = false) {
++    return Message(MessageId(1), ChatId(chat_id), "Alice", "Hello", 10,
++                   outgoing);
++}
++
++} // namespace
++
++TEST(popup_manager_starts_with_default_state) {
++    const ui::PopupManager manager;
++
++    ASSERT_EQ(PopupPosition::BOTTOM, manager.position());
++    ASSERT_EQ(PopupMode::VISUAL_STACK, manager.mode());
++    ASSERT_EQ(static_cast<std::size_t>(0), manager.visibleCount());
++    ASSERT_EQ(static_cast<std::size_t>(0), manager.pendingCount());
++    ASSERT_FALSE(manager.needsRedraw());
++    ASSERT_FALSE(manager.damageArea().has_value());
++}
++
++TEST(popup_manager_show_marks_redraw_and_computes_damage) {
++    ui::PopupManager manager;
++    const std::vector<std::string> lines = {"Line"};
++
++    ASSERT_TRUE(manager.show("Title", lines,
++                             ui::PopupDuration(std::chrono::milliseconds(100))));
++    ASSERT_EQ(static_cast<std::size_t>(1), manager.visibleCount());
++    ASSERT_EQ(static_cast<std::size_t>(0), manager.pendingCount());
++    ASSERT_TRUE(manager.needsRedraw());
++    ASSERT_TRUE(manager.damageArea().has_value());
++    ASSERT_EQ(BoundingBox(30, 692, 570, 760), *manager.damageArea());
++
++    manager.acknowledgeRedraw();
++    ASSERT_FALSE(manager.needsRedraw());
++}
++
++TEST(popup_manager_renders_visible_popup_without_allocating_entries) {
++    ui::PopupManager manager;
++    Canvas canvas;
++    canvas.clear(GrayscaleColor::WHITE);
++    ASSERT_TRUE(manager.show("Title", {"Line"}));
++
++    manager.render(canvas);
++
++    ASSERT_TRUE(canvas.hasNonWhitePixel(BoundingBox(30, 692, 570, 760)));
++}
++
++TEST(popup_manager_update_marks_damage_when_popup_expires) {
++    ui::PopupManager manager;
++    ASSERT_TRUE(manager.show(
++        "Title", {"Line"}, ui::PopupDuration(std::chrono::milliseconds(100))));
++    manager.acknowledgeRedraw();
++
++    ASSERT_FALSE(manager.update(timestamp(99)));
++    ASSERT_FALSE(manager.needsRedraw());
++    ASSERT_TRUE(manager.update(timestamp(100)));
++    ASSERT_TRUE(manager.needsRedraw());
++    ASSERT_EQ(static_cast<std::size_t>(0), manager.visibleCount());
++    ASSERT_EQ(BoundingBox(0, 0, 599, 799), *manager.damageArea());
++}
++
++TEST(popup_manager_filters_incoming_messages) {
++    ui::PopupManager manager;
++    const ChatId active_chat(7);
++
++    ASSERT_FALSE(manager.notifyIncomingMessage(message(8, true), std::nullopt));
++    ASSERT_FALSE(manager.notifyIncomingMessage(message(7), active_chat));
++    ASSERT_FALSE(manager.notifyIncomingMessage(message(8), std::nullopt, true));
++    ASSERT_TRUE(manager.notifyIncomingMessage(message(8), active_chat));
++    ASSERT_EQ(static_cast<std::size_t>(1), manager.visibleCount());
++}
++
++TEST(popup_manager_uses_position_and_mode_settings) {
++    ui::PopupManager manager;
++    manager.setPosition(PopupPosition::TOP);
++    manager.setMode(PopupMode::SEQUENTIAL_QUEUE);
++
++    ASSERT_EQ(PopupPosition::TOP, manager.position());
++    ASSERT_EQ(PopupMode::SEQUENTIAL_QUEUE, manager.mode());
++    ASSERT_TRUE(manager.show("First", {"Line"}));
++    ASSERT_TRUE(manager.show("Second", {"Line"}));
++    ASSERT_EQ(static_cast<std::size_t>(1), manager.visibleCount());
++    ASSERT_EQ(static_cast<std::size_t>(1), manager.pendingCount());
++    ASSERT_EQ(BoundingBox(30, 36, 570, 104), *manager.damageArea());
++}
++
++TEST(popup_manager_render_does_nothing_when_no_popup_is_visible) {
++    ui::PopupManager manager;
++    Canvas canvas;
++    canvas.clear(GrayscaleColor::WHITE);
++
++    manager.render(canvas);
++
++    ASSERT_FALSE(canvas.hasNonWhitePixel(BoundingBox(0, 0, 599, 799)));
++}
+diff --git a/tests/test_screen_navigator.cpp b/tests/test_screen_navigator.cpp
+new file mode 100644
+index 0000000..d4b717d
+--- /dev/null
++++ b/tests/test_screen_navigator.cpp
+@@ -0,0 +1,97 @@
++#include "test_framework.h"
++#include "../src/ui/screen_navigator.h"
++#include "../src/ui/screensaver_screen.h"
++
++namespace {
++class DummyTestScreen : public IScreen {
++public:
++    int enter_count = 0;
++    int exit_count = 0;
++
++    void render(Canvas&) override {}
++    void handleInput(const InputEvent&) override {}
++    void onEnter() override { ++enter_count; }
++    void onExit() override { ++exit_count; }
++};
++}
++
++TEST(screen_navigator_lock_and_unlock_restores_previous_screen) {
++    ScreenNavigator navigator;
++    auto login = std::make_unique<DummyTestScreen>();
++    auto chat_list = std::make_unique<DummyTestScreen>();
++    auto conv = std::make_unique<DummyTestScreen>();
++    auto screensaver = std::make_unique<DummyTestScreen>();
++
++    auto* chat_list_ptr = chat_list.get();
++    auto* screensaver_ptr = screensaver.get();
++
++    navigator.setScreens(std::move(login), std::move(chat_list), std::move(conv));
++    navigator.setScreensaver(std::move(screensaver));
++
++    navigator.showChatList();
++    ASSERT_EQ(chat_list_ptr, navigator.currentScreen());
++
++    navigator.lockScreen();
++    ASSERT_TRUE(navigator.isLocked());
++    ASSERT_EQ(screensaver_ptr, navigator.currentScreen());
++
++    navigator.unlockScreen();
++    ASSERT_FALSE(navigator.isLocked());
++    ASSERT_EQ(chat_list_ptr, navigator.currentScreen());
++}
++
++TEST(screen_navigator_prevents_navigation_while_locked) {
++    ScreenNavigator navigator;
++    auto login = std::make_unique<DummyTestScreen>();
++    auto chat_list = std::make_unique<DummyTestScreen>();
++    auto conv = std::make_unique<DummyTestScreen>();
++    auto screensaver = std::make_unique<DummyTestScreen>();
++
++    auto* screensaver_ptr = screensaver.get();
++
++    navigator.setScreens(std::move(login), std::move(chat_list), std::move(conv));
++    navigator.setScreensaver(std::move(screensaver));
++
++    navigator.showChatList();
++    navigator.lockScreen();
++    ASSERT_TRUE(navigator.isLocked());
++
++    navigator.showLogin();
++    ASSERT_EQ(screensaver_ptr, navigator.currentScreen());
++
++    navigator.openConversation(ChatId(123), "Test");
++    ASSERT_EQ(screensaver_ptr, navigator.currentScreen());
++}
++
++TEST(screen_navigator_lock_without_screensaver_is_noop) {
++    ScreenNavigator navigator;
++    auto login = std::make_unique<DummyTestScreen>();
++    auto* login_ptr = login.get();
++    navigator.setScreens(std::move(login), nullptr, nullptr);
++
++    navigator.lockScreen();
++    ASSERT_FALSE(navigator.isLocked());
++    ASSERT_EQ(login_ptr, navigator.currentScreen());
++}
++
++TEST(screen_navigator_redundant_lock_and_unlock) {
++    ScreenNavigator navigator;
++    auto login = std::make_unique<DummyTestScreen>();
++    auto chat_list = std::make_unique<DummyTestScreen>();
++    auto screensaver = std::make_unique<DummyTestScreen>();
++
++    auto* chat_list_ptr = chat_list.get();
++
++    navigator.setScreens(std::move(login), std::move(chat_list), nullptr);
++    navigator.setScreensaver(std::move(screensaver));
++
++    navigator.showChatList();
++    navigator.lockScreen();
++    navigator.lockScreen();
++    ASSERT_TRUE(navigator.isLocked());
++
++    navigator.unlockScreen();
++    navigator.unlockScreen();
++    ASSERT_FALSE(navigator.isLocked());
++    ASSERT_EQ(chat_list_ptr, navigator.currentScreen());
++}
+diff --git a/tests/test_screensaver_screen.cpp b/tests/test_screensaver_screen.cpp
+new file mode 100644
+index 0000000..1aface4
+--- /dev/null
++++ b/tests/test_screensaver_screen.cpp
+@@ -0,0 +1,76 @@
++#include "test_framework.h"
++#include "../src/graphics/canvas.h"
++#include "../src/ui/screensaver_screen.h"
++#include "../src/ui/screen_navigator.h"
++
++namespace {
++class MockScreen : public IScreen {
++public:
++    int enter_count = 0;
++    int exit_count = 0;
++    int input_count = 0;
++
++    void render(Canvas&) override {}
++    void handleInput(const InputEvent&) override { ++input_count; }
++    void onEnter() override { ++enter_count; }
++    void onExit() override { ++exit_count; }
++};
++}
++
++TEST(screensaver_screen_renders_visual_elements_on_canvas) {
++    ScreensaverScreen screen(nullptr);
++    Canvas canvas;
++    screen.render(canvas);
++
++    ASSERT_EQ(0x00, canvas.pixelAt(ScreenCoordinate(16, 16)).value());
++    ASSERT_EQ(0x00, canvas.pixelAt(ScreenCoordinate(20, 20)).value());
++    ASSERT_TRUE(canvas.hasNonWhitePixel(BoundingBox(100, 260, 499, 520)));
++    ASSERT_TRUE(canvas.hasNonWhitePixel(BoundingBox(256, 310, 350, 330)));
++    ASSERT_TRUE(canvas.hasNonWhitePixel(BoundingBox(160, 720, 450, 760)));
++}
++
++TEST(screensaver_screen_ignores_regular_keystrokes) {
++    ScreenNavigator navigator;
++    auto mock = std::make_unique<MockScreen>();
++    auto* mock_ptr = mock.get();
++    navigator.setScreens(std::move(mock), nullptr, nullptr);
++    navigator.setScreensaver(std::make_unique<ScreensaverScreen>(&navigator));
++    navigator.lockScreen();
++
++    ASSERT_TRUE(navigator.isLocked());
++
++    InputEvent key_a{KeyCode::KEY_A, true};
++    InputEvent key_enter{KeyCode::KEY_ENTER, true};
++    InputEvent key_down{KeyCode::KEY_DOWN, true};
++    InputEvent key_backspace{KeyCode::KEY_BACKSPACE, true};
++
++    navigator.handleInput(key_a);
++    navigator.handleInput(key_enter);
++    navigator.handleInput(key_down);
++    navigator.handleInput(key_backspace);
++
++    ASSERT_TRUE(navigator.isLocked());
++    ASSERT_EQ(0, mock_ptr->input_count);
++}
++
++TEST(screensaver_screen_wakes_on_key_power) {
++    ScreenNavigator navigator;
++    auto mock = std::make_unique<MockScreen>();
++    auto* mock_ptr = mock.get();
++    navigator.setScreens(std::move(mock), nullptr, nullptr);
++    navigator.setScreensaver(std::make_unique<ScreensaverScreen>(&navigator));
++    navigator.showLogin();
++    ASSERT_EQ(1, mock_ptr->enter_count);
++
++    navigator.lockScreen();
++    ASSERT_TRUE(navigator.isLocked());
++
++    InputEvent release_power{KeyCode::KEY_POWER, false};
++    navigator.handleInput(release_power);
++    ASSERT_TRUE(navigator.isLocked());
++
++    InputEvent press_power{KeyCode::KEY_POWER, true};
++    navigator.handleInput(press_power);
++    ASSERT_FALSE(navigator.isLocked());
++    ASSERT_EQ(2, mock_ptr->enter_count);
++}

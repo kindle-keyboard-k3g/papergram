@@ -1,0 +1,416 @@
+4dc2e68 feat(ui): display keyboard and country code toast instructions on login screen
+4b66ac9 fix(ui): clip toast notification text safely
+f8419a2 feat(ui): add ToastNotification component and unit tests
+ src/ui/login_screen.cpp           | 44 ++++++++++++++++++-
+ src/ui/login_screen.h             |  4 ++
+ src/ui/toast_notification.cpp     | 89 +++++++++++++++++++++++++++++++++++++++
+ src/ui/toast_notification.h       | 45 ++++++++++++++++++++
+ tests/test_login_screen.cpp       | 58 +++++++++++++++++++++++++
+ tests/test_toast_notification.cpp | 69 ++++++++++++++++++++++++++++++
+ 6 files changed, 308 insertions(+), 1 deletion(-)
+
+--- FULL DIFF ---
+diff --git a/src/ui/login_screen.cpp b/src/ui/login_screen.cpp
+index 4b50fca..5650d28 100644
+--- a/src/ui/login_screen.cpp
++++ b/src/ui/login_screen.cpp
+@@ -1,12 +1,15 @@
+ #include "login_screen.h"
+ #include "screen_navigator.h"
++#include "toast_notification.h"
++
++#include <vector>
+ 
+ LoginScreen::LoginScreen(mtproto::TelegramClient& client, ScreenNavigator& navigator)
+     : client_(&client) {
+     state_.navigator = &navigator;
+ }
+ 
+ void LoginScreen::onEnter() {
+     state_.step = 0;
+     state_.buffer = "+";
+     state_.status_message = "Enter your phone number (+1234...)";
+@@ -15,35 +18,74 @@ void LoginScreen::onEnter() {
+ void LoginScreen::onExit() {}
+ 
+ void LoginScreen::render(Canvas& canvas) {
+     canvas.clear(GrayscaleColor::WHITE);
+     canvas.blitText(ScreenCoordinate(40, 60), "Kindle Telegram Client", GrayscaleColor::BLACK);
+     canvas.drawLine(ScreenCoordinate(40, 84), ScreenCoordinate(560, 84), GrayscaleColor::BLACK);
+     canvas.blitText(ScreenCoordinate(40, 120), state_.status_message, GrayscaleColor::DARK_GRAY);
+     canvas.drawRect(BoundingBox(40, 150, 560, 190), GrayscaleColor::BLACK);
+     canvas.blitText(ScreenCoordinate(50, 162), state_.buffer + "_", GrayscaleColor::BLACK);
+     canvas.blitText(ScreenCoordinate(40, 220), "[Enter] Continue   [Del] Erase", GrayscaleColor::DARK_GRAY);
++    renderToast(canvas);
+ }
+ 
+ void LoginScreen::handleInput(const InputEvent& event) {
+     if (!event.pressed) return;
+     if (event.code == KeyCode::KEY_ENTER) {
+         submitCurrentStep();
+         return;
+     }
+     if (event.code == KeyCode::KEY_BACKSPACE) {
+-        if (!state_.buffer.empty()) state_.buffer.pop_back();
++        eraseLastCharacter();
+         return;
+     }
+     handleKeyPress(event.code);
+ }
+ 
++void LoginScreen::eraseLastCharacter() {
++    if (state_.step == 0 && state_.buffer.size() <= 1U) {
++        state_.buffer = "+";
++        return;
++    }
++    if (state_.buffer.empty()) return;
++    state_.buffer.pop_back();
++}
++
++void LoginScreen::renderToast(Canvas& canvas) const {
++    if (state_.step == 0) {
++        renderPhoneToast(canvas);
++        return;
++    }
++    if (state_.step == 1) renderCodeToast(canvas);
++}
++
++void LoginScreen::renderPhoneToast(Canvas& canvas) const {
++    const std::vector<std::string> lines = {
++        "- '+' is already included for country code.",
++        "- Hold [ALT] + top row (Q-P) to type 1-0.",
++        "- Example: [ALT]+5 [ALT]+5 for Brazil +55"};
++    ui::ToastNotification toast(
++        BoundingBox(ScreenCoordinate(40, 270), ScreenCoordinate(560, 420)),
++        "KEYBOARD TIPS:", lines);
++    toast.render(canvas);
++}
++
++void LoginScreen::renderCodeToast(Canvas& canvas) const {
++    const std::vector<std::string> lines = {
++        "- Hold [ALT] + top row (Q-P) for digits.",
++        "- Check your Telegram app on phone/PC."};
++    ui::ToastNotification toast(
++        BoundingBox(ScreenCoordinate(40, 270), ScreenCoordinate(560, 420)),
++        "CODE TIPS:", lines);
++    toast.render(canvas);
++}
++
+ void LoginScreen::handleKeyPress(KeyCode code) {
+     char ch = mapKeyToChar(code);
+     if (ch != '\0') state_.buffer.push_back(ch);
+ }
+ 
+ void LoginScreen::submitCurrentStep() {
+     if (state_.step == 0) {
+         state_.step = 1;
+         state_.buffer = "";
+         state_.status_message = "Enter 5-digit verification code:";
+diff --git a/src/ui/login_screen.h b/src/ui/login_screen.h
+index 2276e76..afe947d 100644
+--- a/src/ui/login_screen.h
++++ b/src/ui/login_screen.h
+@@ -21,14 +21,18 @@ private:
+         std::string buffer = "+";
+         std::string status_message = "Enter your phone number";
+         ScreenNavigator* navigator = nullptr;
+     };
+ 
+     mtproto::TelegramClient* client_;
+     LoginState state_;
+ 
+     void handleKeyPress(KeyCode code);
+     void submitCurrentStep();
++    void eraseLastCharacter();
++    void renderToast(Canvas& canvas) const;
++    void renderPhoneToast(Canvas& canvas) const;
++    void renderCodeToast(Canvas& canvas) const;
+     char mapKeyToChar(KeyCode code) const;
+ };
+ 
+ #endif
+diff --git a/src/ui/toast_notification.cpp b/src/ui/toast_notification.cpp
+new file mode 100644
+index 0000000..d14e894
+--- /dev/null
++++ b/src/ui/toast_notification.cpp
+@@ -0,0 +1,89 @@
++#include "toast_notification.h"
++
++#include "../graphics/bitmap_font.h"
++
++#include <algorithm>
++
++namespace ui {
++
++ToastNotification::ToastNotification(const BoundingBox& bounds,
++                                     const std::string& title,
++                                     const std::vector<std::string>& lines)
++    : data_{bounds, title, lines} {}
++
++void ToastNotification::render(Canvas& canvas) const {
++    renderBackground(canvas);
++    renderBorder(canvas);
++    renderTitle(canvas);
++    renderLines(canvas);
++}
++
++const BoundingBox& ToastNotification::bounds() const {
++    return data_.bounds;
++}
++
++void ToastNotification::renderBackground(Canvas& canvas) const {
++    canvas.fillRect(data_.bounds, GrayscaleColor::LIGHT_GRAY);
++}
++
++void ToastNotification::renderBorder(Canvas& canvas) const {
++    canvas.drawRect(data_.bounds, GrayscaleColor::BLACK);
++    if (data_.bounds.width() <= 4 || data_.bounds.height() <= 4) return;
++    const BoundingBox inner(data_.bounds.left() + 2, data_.bounds.top() + 2,
++                            data_.bounds.right() - 2, data_.bounds.bottom() - 2);
++    canvas.drawRect(inner, GrayscaleColor::DARK_GRAY);
++}
++
++void ToastNotification::renderTitle(Canvas& canvas) const {
++    const int x = data_.bounds.left() + 12;
++    const int y = data_.bounds.top() + 8;
++    renderText(canvas, clippedText(data_.bounds, data_.title, x), x, y);
++}
++
++void ToastNotification::renderLines(Canvas& canvas) const {
++    int y = data_.bounds.top() + 30;
++    for (std::size_t index = 0U;
++         index < data_.lines.size() && fitsLine(data_.bounds, y); ++index) {
++        const int x = data_.bounds.left() + 12;
++        const std::string text = clippedText(data_.bounds, data_.lines[index], x);
++        renderText(canvas, text, x, y);
++        y += 18;
++    }
++}
++
++void ToastNotification::renderText(Canvas& canvas, const std::string& text,
++                                   int x, int y) const {
++    if (!canRenderText(data_.bounds, text, x, y)) return;
++    canvas.blitText(ScreenCoordinate(x, y), text, GrayscaleColor::BLACK);
++}
++
++std::string ToastNotification::clippedText(const BoundingBox& bounds,
++                                           const std::string& text, int x) {
++    return text.substr(0U, maximumCharacters(bounds, x));
++}
++
++std::size_t ToastNotification::maximumCharacters(const BoundingBox& bounds,
++                                                 int x) {
++    const int right = std::min(bounds.right(), static_cast<int>(Canvas::WIDTH) - 1);
++    if (x > right) return 0U;
++    return static_cast<std::size_t>(right - x + 1) /
++           BitmapFont::CHARACTER_WIDTH;
++}
++
++bool ToastNotification::canRenderText(const BoundingBox& bounds,
++                                      const std::string& text, int x, int y) {
++    if (text.empty()) return false;
++    const int bottom = std::min(bounds.bottom(), static_cast<int>(Canvas::HEIGHT) - 1);
++    const int right = std::min(bounds.right(), static_cast<int>(Canvas::WIDTH) - 1);
++    const int last_row = y + static_cast<int>(BitmapFont::CHARACTER_HEIGHT) - 1;
++    return x >= bounds.left() && x <= right && y >= bounds.top() &&
++           last_row <= bottom && text.size() <= maximumCharacters(bounds, x);
++}
++
++bool ToastNotification::fitsLine(const BoundingBox& bounds, int y) {
++    const int bottom = std::min(bounds.bottom(), static_cast<int>(Canvas::HEIGHT) - 1);
++    const int last_row = y + static_cast<int>(BitmapFont::CHARACTER_HEIGHT) - 1;
++    return y >= bounds.top() && last_row <= bottom;
++}
++
++} // namespace ui
+diff --git a/src/ui/toast_notification.h b/src/ui/toast_notification.h
+new file mode 100644
+index 0000000..c1042fa
+--- /dev/null
++++ b/src/ui/toast_notification.h
+@@ -0,0 +1,45 @@
++#ifndef KINDLE_UI_TOAST_NOTIFICATION_H
++#define KINDLE_UI_TOAST_NOTIFICATION_H
++
++#include "../graphics/canvas.h"
++#include "../domain/value_objects.h"
++
++#include <cstddef>
++#include <string>
++#include <vector>
++
++namespace ui {
++
++class ToastNotification {
++public:
++    ToastNotification(const BoundingBox& bounds, const std::string& title,
++                      const std::vector<std::string>& lines);
++    void render(Canvas& canvas) const;
++    const BoundingBox& bounds() const;
++
++private:
++    struct ToastData {
++        BoundingBox bounds;
++        std::string title;
++        std::vector<std::string> lines;
++    };
++
++    ToastData data_;
++
++    void renderBackground(Canvas& canvas) const;
++    void renderBorder(Canvas& canvas) const;
++    void renderTitle(Canvas& canvas) const;
++    void renderLines(Canvas& canvas) const;
++    void renderText(Canvas& canvas, const std::string& text, int x,
++                    int y) const;
++    static std::string clippedText(const BoundingBox& bounds,
++                                   const std::string& text, int x);
++    static std::size_t maximumCharacters(const BoundingBox& bounds, int x);
++    static bool canRenderText(const BoundingBox& bounds,
++                              const std::string& text, int x, int y);
++    static bool fitsLine(const BoundingBox& bounds, int y);
++};
++
++} // namespace ui
++
++#endif
+diff --git a/tests/test_login_screen.cpp b/tests/test_login_screen.cpp
+new file mode 100644
+index 0000000..6104228
+--- /dev/null
++++ b/tests/test_login_screen.cpp
+@@ -0,0 +1,58 @@
++#include "test_framework.h"
++
++#include "../src/graphics/canvas.h"
++#include "../src/mtproto/telegram_client.h"
++#include "../src/ui/login_screen.h"
++#include "../src/ui/screen_navigator.h"
++
++class LoginTestTransport : public INetworkTransport {
++public:
++    bool post(const std::string&, const std::vector<uint8_t>&,
++              std::vector<uint8_t>&) override {
++        return true;
++    }
++};
++
++TEST(login_screen_phone_step_renders_keyboard_toast) {
++    LoginTestTransport transport;
++    mtproto::TelegramClient client(transport, "/tmp/test_session_login.dat");
++    ScreenNavigator navigator;
++    LoginScreen screen(client, navigator);
++    Canvas canvas;
++
++    screen.onEnter();
++    screen.render(canvas);
++
++    ASSERT_TRUE(canvas.hasNonWhitePixel(BoundingBox(40, 270, 560, 420)));
++}
++
++TEST(login_screen_phone_backspace_preserves_plus_prefix) {
++    LoginTestTransport transport;
++    mtproto::TelegramClient client(transport, "/tmp/test_session_login.dat");
++    ScreenNavigator navigator;
++    LoginScreen screen(client, navigator);
++    Canvas canvas;
++
++    screen.onEnter();
++    screen.handleInput(InputEvent{KeyCode::KEY_BACKSPACE, true});
++    screen.render(canvas);
++
++    ASSERT_TRUE(canvas.hasNonWhitePixel(BoundingBox(50, 162, 57, 173)));
++}
++
++TEST(login_screen_enter_renders_code_toast_and_resets_buffer) {
++    LoginTestTransport transport;
++    mtproto::TelegramClient client(transport, "/tmp/test_session_login.dat");
++    ScreenNavigator navigator;
++    LoginScreen screen(client, navigator);
++    Canvas canvas;
++
++    screen.onEnter();
++    screen.handleInput(InputEvent{KeyCode::KEY_ENTER, true});
++    screen.render(canvas);
++
++    ASSERT_TRUE(canvas.hasNonWhitePixel(BoundingBox(40, 270, 560, 420)));
++    ASSERT_EQ(GrayscaleColor::BLACK,
++              canvas.pixelAt(ScreenCoordinate(55, 279)));
++    ASSERT_FALSE(canvas.hasNonWhitePixel(BoundingBox(50, 162, 57, 173)));
++}
+diff --git a/tests/test_toast_notification.cpp b/tests/test_toast_notification.cpp
+new file mode 100644
+index 0000000..97ff123
+--- /dev/null
++++ b/tests/test_toast_notification.cpp
+@@ -0,0 +1,69 @@
++#include "test_framework.h"
++
++#include "../src/graphics/canvas.h"
++#include "../src/ui/toast_notification.h"
++
++#include <string>
++#include <vector>
++
++TEST(toast_notification_keeps_bounds_and_renders_card_content) {
++    const BoundingBox bounds(100, 100, 499, 220);
++    const std::vector<std::string> lines = {"First line", "Second line"};
++    ui::ToastNotification notification(bounds, "Notice", lines);
++    Canvas canvas;
++    canvas.clear(GrayscaleColor::WHITE);
++
++    notification.render(canvas);
++
++    ASSERT_EQ(bounds, notification.bounds());
++    ASSERT_TRUE(canvas.hasNonWhitePixel(BoundingBox(100, 100, 499, 220)));
++    ASSERT_TRUE(canvas.hasNonWhitePixel(BoundingBox(112, 108, 180, 123)));
++    ASSERT_TRUE(canvas.hasNonWhitePixel(BoundingBox(112, 130, 220, 145)));
++    ASSERT_TRUE(canvas.hasNonWhitePixel(BoundingBox(112, 148, 220, 163)));
++    ASSERT_EQ(GrayscaleColor::BLACK,
++              canvas.pixelAt(ScreenCoordinate(114, 109)));
++    ASSERT_EQ(GrayscaleColor::BLACK,
++              canvas.pixelAt(ScreenCoordinate(114, 131)));
++    ASSERT_EQ(GrayscaleColor::BLACK,
++              canvas.pixelAt(ScreenCoordinate(115, 149)));
++}
++
++TEST(toast_notification_clips_long_text_to_card_bounds) {
++    const BoundingBox bounds(100, 100, 220, 180);
++    const std::string long_text(80U, 'X');
++    const std::vector<std::string> lines = {long_text, long_text};
++    ui::ToastNotification notification(bounds, long_text, lines);
++    Canvas canvas;
++    canvas.clear(GrayscaleColor::WHITE);
++
++    notification.render(canvas);
++
++    ASSERT_TRUE(canvas.hasNonWhitePixel(BoundingBox(100, 100, 220, 180)));
++    ASSERT_FALSE(canvas.hasNonWhitePixel(BoundingBox(221, 100, 599, 180)));
++    ASSERT_FALSE(canvas.hasNonWhitePixel(BoundingBox(100, 181, 220, 799)));
++}
++
++TEST(toast_notification_handles_small_bounds_without_overflow) {
++    const BoundingBox bounds(0, 0, 16, 18);
++    const std::vector<std::string> lines = {std::string(80U, 'Y')};
++    ui::ToastNotification notification(bounds, std::string(80U, 'Z'), lines);
++    Canvas canvas;
++    canvas.clear(GrayscaleColor::WHITE);
++
++    notification.render(canvas);
++
++    ASSERT_TRUE(canvas.hasNonWhitePixel(BoundingBox(0, 0, 16, 18)));
++    ASSERT_FALSE(canvas.hasNonWhitePixel(BoundingBox(17, 0, 40, 30)));
++}
++
++TEST(toast_notification_handles_right_and_bottom_canvas_edges) {
++    const BoundingBox bounds(592, 780, 600, 800);
++    const std::vector<std::string> lines = {std::string(80U, 'Q')};
++    ui::ToastNotification notification(bounds, std::string(80U, 'R'), lines);
++    Canvas canvas;
++    canvas.clear(GrayscaleColor::WHITE);
++
++    notification.render(canvas);
++
++    ASSERT_TRUE(canvas.hasNonWhitePixel(BoundingBox(592, 780, 599, 799)));
++}
