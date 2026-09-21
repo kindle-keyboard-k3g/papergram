@@ -26,22 +26,31 @@ ui::PopupEntry entry(const std::string& title,
     return ui::PopupEntry(card, ui::PopupDuration(std::chrono::milliseconds(duration)));
 }
 
-bool renderedTitleMatches(const Canvas& canvas, const BoundingBox& bounds,
-                          const std::string& title) {
+bool renderedStackTitlesMatch(
+    const Canvas& canvas, const std::vector<std::string>& titles) {
     Canvas expected;
     expected.clear(GrayscaleColor::WHITE);
+    const ui::PopupLayout layout;
     const std::vector<std::string> lines = {"Line"};
-    ui::ToastNotification card(bounds, title, lines);
-    card.render(expected);
-    const int first_x = bounds.left() + 8;
-    const int last_x = bounds.left() + 220;
-    const int first_y = bounds.top() + 4;
-    const int last_y = bounds.top() + 25;
-    for (int y = first_y; y <= last_y; ++y) {
-        for (int x = first_x; x <= last_x; ++x) {
-            if (canvas.pixelAt(ScreenCoordinate(x, y)) !=
-                expected.pixelAt(ScreenCoordinate(x, y))) {
-                return false;
+    for (std::size_t index = 0U; index < titles.size(); ++index) {
+        const BoundingBox bounds =
+            layout.calculateBounds(index, PopupPosition::BOTTOM);
+        ui::ToastNotification card(bounds, titles[index], lines);
+        card.render(expected);
+    }
+    for (std::size_t index = 0U; index < titles.size(); ++index) {
+        const BoundingBox bounds =
+            layout.calculateBounds(index, PopupPosition::BOTTOM);
+        const int first_x = bounds.left() + 8;
+        const int last_x = bounds.left() + 220;
+        const int first_y = bounds.top() + 4;
+        const int last_y = bounds.top() + 25;
+        for (int y = first_y; y <= last_y; ++y) {
+            for (int x = first_x; x <= last_x; ++x) {
+                if (canvas.pixelAt(ScreenCoordinate(x, y)) !=
+                    expected.pixelAt(ScreenCoordinate(x, y))) {
+                    return false;
+                }
             }
         }
     }
@@ -104,21 +113,10 @@ TEST(popup_collection_visual_stack_keeps_newest_four_items) {
                       PopupMode::VISUAL_STACK);
     ASSERT_TRUE(canvas.hasNonWhitePixel(BoundingBox(30, 692, 570, 760)));
     ASSERT_TRUE(canvas.hasNonWhitePixel(BoundingBox(30, 548, 570, 616)));
-    ASSERT_TRUE(renderedTitleMatches(
-        canvas, ui::PopupLayout().calculateBounds(0U, PopupPosition::BOTTOM),
-        "Five"));
-    ASSERT_TRUE(renderedTitleMatches(
-        canvas, ui::PopupLayout().calculateBounds(1U, PopupPosition::BOTTOM),
-        "Four"));
-    ASSERT_TRUE(renderedTitleMatches(
-        canvas, ui::PopupLayout().calculateBounds(2U, PopupPosition::BOTTOM),
-        "Three"));
-    ASSERT_TRUE(renderedTitleMatches(
-        canvas, ui::PopupLayout().calculateBounds(3U, PopupPosition::BOTTOM),
-        "Two"));
-    ASSERT_FALSE(renderedTitleMatches(
-        canvas, ui::PopupLayout().calculateBounds(0U, PopupPosition::BOTTOM),
-        "One"));
+    ASSERT_TRUE(renderedStackTitlesMatch(
+        canvas, {"Five", "Four", "Three", "Two"}));
+    ASSERT_FALSE(renderedStackTitlesMatch(
+        canvas, {"Five", "Four", "Three", "One"}));
 }
 
 TEST(popup_collection_visual_stack_removes_expired_items) {
@@ -159,6 +157,21 @@ TEST(popup_collection_sequential_queue_promotes_waiting_item) {
     collection.render(canvas, ui::PopupLayout(), PopupPosition::TOP,
                       PopupMode::SEQUENTIAL_QUEUE);
     ASSERT_TRUE(canvas.hasNonWhitePixel(BoundingBox(30, 36, 570, 104)));
+}
+
+TEST(popup_collection_sequential_queue_resets_promotion_timestamp) {
+    ui::PopupCollection collection;
+    const ui::PopupTimestamp start = timestamp(10);
+
+    ASSERT_TRUE(collection.push(entry("First", "first", 100),
+                                PopupMode::SEQUENTIAL_QUEUE, start));
+    ASSERT_TRUE(collection.push(entry("Second", "second", 100),
+                                PopupMode::SEQUENTIAL_QUEUE, start));
+    ASSERT_TRUE(collection.update(timestamp(110), PopupMode::SEQUENTIAL_QUEUE));
+    ASSERT_FALSE(collection.update(timestamp(209), PopupMode::SEQUENTIAL_QUEUE));
+    ASSERT_TRUE(collection.update(timestamp(210), PopupMode::SEQUENTIAL_QUEUE));
+    ASSERT_EQ(static_cast<std::size_t>(0),
+              collection.visibleCount(PopupMode::SEQUENTIAL_QUEUE));
 }
 
 TEST(popup_collection_sequential_queue_rejects_when_full) {
