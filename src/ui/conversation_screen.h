@@ -14,6 +14,7 @@ public:
     ConversationScreen(mtproto::TelegramClient& client, ScreenNavigator& navigator);
 
     void setChat(const ChatId& chat_id, const std::string& title);
+    const ChatId& chatId() const;
     void addMessage(const Message& message);
     const std::vector<std::string>& wrappedLines() const;
     const std::string& inputText() const;

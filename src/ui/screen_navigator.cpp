@@ -1,4 +1,13 @@
 #include "screen_navigator.h"
+#include "conversation_screen.h"
+
+namespace {
+void updateConversationTarget(IScreen* screen, const ChatId& chat_id, const std::string& title) {
+    auto* conversation = dynamic_cast<ConversationScreen*>(screen);
+    if (!conversation) return;
+    conversation->setChat(chat_id, title);
+}
+}
 
 ScreenNavigator::ScreenNavigator() = default;
 
@@ -17,6 +26,7 @@ void ScreenNavigator::setScreensaver(std::unique_ptr<IScreen> screensaver) {
 
 void ScreenNavigator::showLogin() {
     if (state_.locked) return;
+    state_.active_conversation_id = std::nullopt;
     if (state_.active_screen) state_.active_screen->onExit();
     state_.active_screen = state_.login.get();
     if (state_.active_screen) state_.active_screen->onEnter();
@@ -24,13 +34,16 @@ void ScreenNavigator::showLogin() {
 
 void ScreenNavigator::showChatList() {
     if (state_.locked) return;
+    state_.active_conversation_id = std::nullopt;
     if (state_.active_screen) state_.active_screen->onExit();
     state_.active_screen = state_.chat_list.get();
     if (state_.active_screen) state_.active_screen->onEnter();
 }
 
-void ScreenNavigator::openConversation(const ChatId&, const std::string&) {
+void ScreenNavigator::openConversation(const ChatId& chat_id, const std::string& chat_title) {
     if (state_.locked) return;
+    state_.active_conversation_id = chat_id;
+    updateConversationTarget(state_.conversation.get(), chat_id, chat_title);
     if (state_.active_screen) state_.active_screen->onExit();
     state_.active_screen = state_.conversation.get();
     if (state_.active_screen) state_.active_screen->onEnter();
@@ -57,6 +70,10 @@ void ScreenNavigator::unlockScreen() {
 
 bool ScreenNavigator::isLocked() const {
     return state_.locked;
+}
+
+std::optional<ChatId> ScreenNavigator::activeConversationId() const {
+    return state_.active_conversation_id;
 }
 
 void ScreenNavigator::render(Canvas& canvas) {

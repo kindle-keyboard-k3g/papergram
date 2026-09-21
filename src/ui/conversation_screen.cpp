@@ -31,6 +31,10 @@ void ConversationScreen::setChat(const ChatId& chat_id, const std::string& title
     header_.setTitle(title);
 }
 
+const ChatId& ConversationScreen::chatId() const {
+    return state_.active_chat_id;
+}
+
 void ConversationScreen::addMessage(const Message& message) {
     state_.history.append(message);
     wrapText(message.text().value());

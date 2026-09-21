@@ -4,6 +4,7 @@
 #include "screen.h"
 #include "../domain/value_objects.h"
 #include <memory>
+#include <optional>
 #include <vector>
 
 class ScreenNavigator {
@@ -22,6 +23,8 @@ public:
     void unlockScreen();
     bool isLocked() const;
 
+    std::optional<ChatId> activeConversationId() const;
+
     void render(Canvas& canvas);
     void handleInput(const InputEvent& event);
     IScreen* currentScreen() const;
@@ -34,6 +37,7 @@ private:
         std::unique_ptr<IScreen> screensaver;
         IScreen* active_screen = nullptr;
         IScreen* previous_active_screen = nullptr;
+        std::optional<ChatId> active_conversation_id{std::nullopt};
         bool locked = false;
     };
 

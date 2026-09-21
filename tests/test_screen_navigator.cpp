@@ -1,6 +1,7 @@
 #include "test_framework.h"
 #include "../src/ui/screen_navigator.h"
 #include "../src/ui/screensaver_screen.h"
+#include "../src/ui/conversation_screen.h"
 
 namespace {
 class DummyTestScreen : public IScreen {
@@ -94,4 +95,31 @@ TEST(screen_navigator_redundant_lock_and_unlock) {
     navigator.unlockScreen();
     ASSERT_FALSE(navigator.isLocked());
     ASSERT_EQ(chat_list_ptr, navigator.currentScreen());
+}
+
+TEST(screen_navigator_tracks_and_clears_active_conversation_id) {
+    ScreenNavigator navigator;
+    auto login = std::make_unique<DummyTestScreen>();
+    auto chat_list = std::make_unique<DummyTestScreen>();
+    auto conv = std::make_unique<ConversationScreen>(ChatId(101), "Default");
+
+    auto* conv_ptr = conv.get();
+    navigator.setScreens(std::move(login), std::move(chat_list), std::move(conv));
+
+    ASSERT_FALSE(navigator.activeConversationId().has_value());
+
+    navigator.openConversation(ChatId(777), "Alice");
+    ASSERT_TRUE(navigator.activeConversationId().has_value());
+    ASSERT_EQ(777, navigator.activeConversationId()->value());
+    ASSERT_EQ(777, conv_ptr->chatId().value());
+
+    navigator.showChatList();
+    ASSERT_FALSE(navigator.activeConversationId().has_value());
+
+    navigator.openConversation(ChatId(888), "Bob");
+    ASSERT_TRUE(navigator.activeConversationId().has_value());
+    ASSERT_EQ(888, navigator.activeConversationId()->value());
+
+    navigator.showLogin();
+    ASSERT_FALSE(navigator.activeConversationId().has_value());
 }
