@@ -25,6 +25,7 @@ public:
      *
      * @param darkToWhite Regions whose previous pixels were non-white and whose
      * current pixels are white.
+     * @throws Any exception propagated by the e-ink controller.
      */
     void clean(const DirtyTracker& darkToWhite);
 
