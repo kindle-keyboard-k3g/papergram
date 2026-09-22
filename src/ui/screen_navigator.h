@@ -1,8 +1,9 @@
 #ifndef KINDLE_UI_SCREEN_NAVIGATOR_H
 #define KINDLE_UI_SCREEN_NAVIGATOR_H
 
-#include "screen.h"
+#include "confirmation_dialog.h"
 #include "kindle_menu.h"
+#include "screen.h"
 #include "../domain/value_objects.h"
 #include <functional>
 #include <memory>
@@ -27,6 +28,7 @@ public:
 
     std::optional<ChatId> activeConversationId() const;
     bool isMenuOpen() const;
+    bool isConfirmDialogOpen() const;
     void openMenu();
     void closeMenu();
     void setRefreshCallback(std::function<void()> on_refresh);
@@ -48,6 +50,7 @@ private:
         bool locked = false;
         std::function<void()> refresh_cb;
         std::function<void()> exit_cb;
+        ui::ConfirmationDialog confirm_dialog;
     };
 
     NavigationState state_;

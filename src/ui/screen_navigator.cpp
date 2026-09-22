@@ -82,6 +82,10 @@ bool ScreenNavigator::isMenuOpen() const {
     return menu_.isOpen();
 }
 
+bool ScreenNavigator::isConfirmDialogOpen() const {
+    return state_.confirm_dialog.isOpen();
+}
+
 void ScreenNavigator::openMenu() {
     if (state_.locked) return;
     populateMenu();
@@ -115,7 +119,16 @@ void ScreenNavigator::populateMenu() {
         showLogin();
     }));
     list.append(ui::MenuItem(ui::MenuLabel("Exit Papergram"), [this]() {
-        if (state_.exit_cb) state_.exit_cb();
+        menu_.close();
+        state_.confirm_dialog.open(
+            "=== EXIT PAPERGRAM ===",
+            "Are you sure you want to exit?",
+            [this]() {
+                if (state_.exit_cb) state_.exit_cb();
+            },
+            nullptr,
+            "Exit",
+            "Cancel");
     }));
 
     menu_.open(list);
@@ -124,9 +137,14 @@ void ScreenNavigator::populateMenu() {
 void ScreenNavigator::render(Canvas& canvas) {
     if (state_.active_screen) state_.active_screen->render(canvas);
     if (menu_.isOpen()) menu_.render(canvas);
+    if (state_.confirm_dialog.isOpen()) state_.confirm_dialog.render(canvas);
 }
 
 void ScreenNavigator::handleInput(const InputEvent& event) {
+    if (state_.confirm_dialog.isOpen()) {
+        state_.confirm_dialog.handleInput(event);
+        return;
+    }
     if (event.pressed && event.code == KeyCode::KEY_MENU) {
         if (menu_.isOpen()) {
             menu_.close();

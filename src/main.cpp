@@ -162,6 +162,9 @@ int main() {
     ui::PopupManager popups;
 
     ScreenNavigator navigator;
+    navigator.setExitCallback([&]() {
+        g_running = 0;
+    });
     hal::AsyncWorker worker;
     auto login = std::make_unique<LoginScreen>(client, navigator, &worker);
     auto chat_list = std::make_unique<ChatListScreen>(client, navigator, &worker);
