@@ -10,12 +10,36 @@
 
 namespace ui {
 
+/**
+ * @brief Renders a double-bordered notification card with text lines.
+ */
 class ToastNotification {
 public:
+    /**
+     * @brief Creates a notification card.
+     * @param bounds Screen rectangle occupied by the card.
+     * @param title Heading rendered near the top of the card.
+     * @param lines Body lines rendered below the heading.
+     */
     ToastNotification(const BoundingBox& bounds, const std::string& title,
                       const std::vector<std::string>& lines);
+
+    /**
+     * @brief Moves the card to a new screen rectangle.
+     * @param bounds New card rectangle.
+     */
     void setBounds(const BoundingBox& bounds);
+
+    /**
+     * @brief Draws the card background, borders, title, and body text.
+     * @param canvas Destination canvas.
+     */
     void render(Canvas& canvas) const;
+
+    /**
+     * @brief Returns the card's current screen rectangle.
+     * @return Current card bounds.
+     */
     const BoundingBox& bounds() const;
 
 private:

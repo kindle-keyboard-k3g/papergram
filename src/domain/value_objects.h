@@ -19,7 +19,7 @@ public:
     explicit PhoneNumber(const std::string& value);
 
     /**
-     * @brief Returns the normalized phone number text.
+     * @brief Returns the phone number text.
      * @return The stored E.164 phone number.
      */
     const std::string& value() const;

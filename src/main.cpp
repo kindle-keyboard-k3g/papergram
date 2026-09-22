@@ -28,22 +28,38 @@
 namespace {
 volatile std::sig_atomic_t g_running = 1;
 
-void handleSignal(int) {
+/**
+ * @brief Stops the main loop after a termination signal.
+ * @param signal_number Signal received from the operating system.
+ */
+void handleSignal(int signal_number) {
+    (void)signal_number;
     g_running = 0;
 }
 
+/**
+ * @brief Returns the current monotonic time in milliseconds.
+ * @return Milliseconds elapsed on the process monotonic clock.
+ */
 std::uint64_t monotonicTimeMs() {
     using namespace std::chrono;
     return static_cast<std::uint64_t>(
         duration_cast<milliseconds>(steady_clock::now().time_since_epoch()).count());
 }
 
+/**
+ * @brief Owns the framebuffer, e-ink controller, and input device.
+ */
 struct HardwareContext {
     std::unique_ptr<IFrameBuffer> fb;
     std::unique_ptr<IEinkController> eink;
     std::unique_ptr<IInputDevice> input;
 };
 
+/**
+ * @brief Initializes native Kindle hardware or host fallback devices.
+ * @return Owning handles for the selected hardware implementation.
+ */
 HardwareContext initializeHardware() {
     HardwareContext ctx;
     try {
@@ -64,6 +80,10 @@ HardwareContext initializeHardware() {
     }
 }
 
+/**
+ * @brief Toggles the navigator between locked and unlocked states.
+ * @param navigator Navigator whose lock state should change.
+ */
 void handlePowerToggle(ScreenNavigator& navigator) {
     if (navigator.isLocked()) {
         navigator.unlockScreen();
@@ -72,6 +92,13 @@ void handlePowerToggle(ScreenNavigator& navigator) {
     navigator.lockScreen();
 }
 
+/**
+ * @brief Renders the navigator and popups, then flushes the framebuffer.
+ * @param navigator Screen and overlay coordinator.
+ * @param popups Popup overlay manager.
+ * @param canvas Back-buffer canvas used for rendering.
+ * @param fb Framebuffer receiving the rendered pixels.
+ */
 void renderFrame(ScreenNavigator& navigator, ui::PopupManager& popups, Canvas& canvas, IFrameBuffer& fb) {
     navigator.render(canvas);
     popups.render(canvas);
@@ -79,6 +106,9 @@ void renderFrame(ScreenNavigator& navigator, ui::PopupManager& popups, Canvas& c
     fb.flush();
 }
 
+/**
+ * @brief Groups e-ink refresh strategies and frame-diff state.
+ */
 struct RefreshPipeline {
     FullRefresh full_refresh;
     DarkToWhiteCleaner d2w_cleaner;
@@ -86,6 +116,10 @@ struct RefreshPipeline {
     IdleRefreshScheduler idle_scheduler;
     bool alt_pressed = false;
 
+    /**
+     * @brief Creates a refresh pipeline for an e-ink controller.
+     * @param controller Controller used by full, cleaning, and idle refreshes.
+     */
     explicit RefreshPipeline(IEinkController& controller)
         : full_refresh(controller),
           d2w_cleaner(controller),
@@ -93,6 +127,12 @@ struct RefreshPipeline {
           idle_scheduler(controller) {}
 };
 
+/**
+ * @brief Handles Alt state and the manual Alt+G full-refresh shortcut.
+ * @param ev Input event to inspect.
+ * @param pipeline Refresh pipeline receiving a forced refresh when requested.
+ * @return True when the event is consumed by ghostbuster handling.
+ */
 bool handleAltGhostbuster(const InputEvent& ev, RefreshPipeline& pipeline) {
     if (ev.code == KeyCode::KEY_ALT) {
         pipeline.alt_pressed = ev.pressed;
@@ -106,6 +146,15 @@ bool handleAltGhostbuster(const InputEvent& ev, RefreshPipeline& pipeline) {
     return false;
 }
 
+/**
+ * @brief Renders a frame and performs the required e-ink refresh.
+ * @param navigator Screen and overlay coordinator.
+ * @param popups Popup overlay manager.
+ * @param canvas Canvas containing the current frame.
+ * @param fb Framebuffer receiving the frame.
+ * @param pipeline Refresh strategies and frame-diff tracker.
+ * @param forceScreenChanged Whether to force a full refresh for a transition.
+ */
 void presentFrame(ScreenNavigator& navigator, ui::PopupManager& popups, Canvas& canvas,
                   IFrameBuffer& fb, RefreshPipeline& pipeline, bool forceScreenChanged) {
     renderFrame(navigator, popups, canvas, fb);
@@ -123,6 +172,15 @@ void presentFrame(ScreenNavigator& navigator, ui::PopupManager& popups, Canvas& 
     std::cout << "[Kindle Telegram] Screen updated -> /tmp/kindle_fb.ppm" << std::endl;
 }
 
+/**
+ * @brief Processes one input event and presents any resulting frame.
+ * @param ev Input event received from the input device.
+ * @param navigator Screen and overlay coordinator.
+ * @param popups Popup overlay manager.
+ * @param canvas Canvas used for rendering.
+ * @param hw Active hardware devices.
+ * @param pipeline Refresh strategies and frame-diff tracker.
+ */
 void processEvent(const InputEvent& ev, ScreenNavigator& navigator, ui::PopupManager& popups,
                   Canvas& canvas, HardwareContext& hw, RefreshPipeline& pipeline) {
     pipeline.idle_scheduler.noteActivity(monotonicTimeMs());
@@ -148,6 +206,10 @@ void processEvent(const InputEvent& ev, ScreenNavigator& navigator, ui::PopupMan
 }
 }
 
+/**
+ * @brief Initializes Papergram and runs the input/render event loop.
+ * @return Zero after a clean shutdown.
+ */
 int main() {
     std::signal(SIGINT, handleSignal);
     std::signal(SIGTERM, handleSignal);
