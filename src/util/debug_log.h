@@ -5,22 +5,29 @@
 #include <string>
 
 /**
- * Utility for formatting and emitting debug traces.
+ * @brief Utility for formatting structured debug traces.
  */
 class DebugLog {
 public:
     /**
-     * Formats a structured debug message with a subsystem tag.
-     *
-     * @param tag Subsystem tag name.
+     * @brief Formats a debug message with a subsystem tag.
+     * @param tag Subsystem tag identifying the message source.
      * @param message Debug message text.
-     * @return Formatted debug log string.
+     * @return A string in the form "[DEBUG][tag] message".
      */
     static std::string format(const std::string& tag, const std::string& message) {
         return "[DEBUG][" + tag + "] " + message;
     }
 };
 
+/**
+ * @brief Emits a tagged debug message when debug logging is enabled.
+ * @param tag Subsystem tag identifying the message source.
+ * @param message Debug message text.
+ *
+ * When DEBUG is not defined, this macro expands to a no-op and does not emit
+ * anything to the process log.
+ */
 #ifdef DEBUG
 #define DEBUG_LOG(tag, message)                                                \
     do {                                                                       \
