@@ -7,38 +7,52 @@
 
 namespace hal {
 
+/** @brief Callable work item executed on the worker thread. */
 using AsyncTask = std::function<void()>;
+
+/** @brief Callable completion handler invoked by the UI thread. */
 using UiCallback = std::function<void()>;
 
 /**
  * @brief Thread-safe asynchronous worker for background operations.
  *
- * Dispatches blocking tasks (like network I/O) onto a dedicated background thread
- * and enqueues completion callbacks to be drained on the main UI thread.
+ * Blocking tasks are dispatched to a dedicated background thread. Completion
+ * callbacks are queued until the UI thread explicitly drains them.
  */
 class AsyncWorker {
 public:
+    /** @brief Starts the worker thread. */
     AsyncWorker();
+
+    /**
+     * @brief Stops the worker and releases its resources.
+     *
+     * Queued and active tasks are allowed to finish before the worker thread
+     * is joined.
+     */
     ~AsyncWorker();
 
+    /** @brief Disables copying of the worker thread and task queues. */
     AsyncWorker(const AsyncWorker&) = delete;
+
+    /** @brief Disables assignment of the worker thread and task queues. */
     AsyncWorker& operator=(const AsyncWorker&) = delete;
 
     /**
      * @brief Posts a background task with an optional UI completion callback.
-     * @param task Work to execute on background thread.
-     * @param onComplete Callback to enqueue for UI thread after task finishes.
+     * @param task Work to execute on the background thread.
+     * @param onComplete Callback queued for the UI thread after the task ends.
      */
     void postTask(AsyncTask task, UiCallback onComplete);
 
     /**
-     * @brief Drains and invokes all pending UI completion callbacks on caller thread.
+     * @brief Drains and invokes pending UI callbacks on the caller's thread.
      * @return Number of callbacks executed.
      */
     std::size_t drainUiCallbacks();
 
     /**
-     * @brief Stops the worker thread and waits for active tasks to complete.
+     * @brief Requests shutdown and waits for the worker thread to finish.
      */
     void stop();
 

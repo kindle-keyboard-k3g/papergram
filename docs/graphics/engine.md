@@ -11,13 +11,14 @@ Double-buffered drawing surface with dimensions 600x800 at 8 bits per pixel (1 b
 - **Buffer Layout**: Maintains a `backBuffer` (active drawing target) and a `frontBuffer` (snapshot of currently displayed frame on the hardware).
 - **Drawing Primitives**:
   - `clear(GrayscaleColor color)`: Fills entire canvas.
-  - `setPixel(int x, int y, GrayscaleColor color)`: Writes a clipped single pixel.
+  - `setPixel(int x, int y, GrayscaleColor color)` / `setPixel(ScreenCoordinate, GrayscaleColor)`: Writes a clipped single pixel.
   - `drawLine(int x1, int y1, int x2, int y2, GrayscaleColor color)`: Bresenham line rasterizer.
-  - `drawRect(int x, int y, int width, int height, GrayscaleColor color)`: Draws 1px outline.
-  - `fillRect(int x, int y, int width, int height, GrayscaleColor color)`: Solid rectangular fill.
-  - `invertRect(int x, int y, int width, int height)`: Bitwise pixel inversion for cursor and selection highlighting.
-  - `drawText(int x, int y, const std::string& text, GrayscaleColor color)`: Monospace text blitting.
-  - `exportPPM(const std::string& filepath)`: Exports backBuffer to PPM image format (used by host fallback and test assertions).
+  - `drawRect(int left, int top, int right, int bottom, GrayscaleColor color)`: Draws 1px outline with inclusive bounds.
+  - `fillRect(int left, int top, int right, int bottom, GrayscaleColor color)`: Solid rectangular fill with inclusive bounds.
+  - `invertRect(int left, int top, int right, int bottom)`: Bitwise pixel inversion for cursor and selection highlighting.
+  - `blitText(int x, int y, const std::string& text, GrayscaleColor color)`: Monospace 8x16 text blitting.
+  - `saveToPpm(const std::string& filepath)`: Exports backBuffer to PPM image format (used by host fallback and test assertions).
+  - `frontBuffer()` / `backBuffer()`: Direct pointer access to raw 480 KB linear pixel arrays.
 - **Memory Footprint**: Exactly 480 KB per buffer (960 KB total RAM).
 
 ### `BitmapFont` (`src/graphics/bitmap_font.h`)
